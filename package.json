@@ -1,0 +1,35 @@
+{
+  "name": "pair2vid",
+  "version": "1.0.0",
+  "description": "Công cụ CLI chuyển đổi hàng loạt các cặp file ảnh và âm thanh thành video MP4",
+  "main": "dist/cli.js",
+  "type": "module",
+  "bin": {
+    "p2v": "./dist/cli.js",
+    "pair2vid": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/cli.ts",
+    "validate": "tsx src/cli.ts validate",
+    "test": "tsx tests/run-tests.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "oxlint",
+    "prepack": "pnpm build"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "commander": "^13.1.0",
+    "execa": "^9.6.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "oxlint": "^1.77.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
