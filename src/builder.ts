@@ -1,14 +1,17 @@
 import fs from "fs"
+import os from "os"
 import path from "path"
 import picocolors from "picocolors"
 import {
   checkFFmpegAvailability,
+  concatVideosWithGap,
   getAudioDuration,
   renderVideo,
   verifyVideo,
 } from "./ffmpeg.js"
 import { scanInputDirectory } from "./scanner.js"
 import { BuildOptions, ScanResult } from "./types.js"
+import { CONFIG } from "./config.js"
 
 export async function validateScanResult(
   inputDir: string
@@ -100,6 +103,10 @@ export async function validateCommand(inputDir: string): Promise<boolean> {
 export async function buildCommand(options: BuildOptions): Promise<void> {
   const inputDir = path.resolve(options.input)
   const outputDir = path.resolve(options.output)
+  const concatFileName = CONFIG.DEFAULT_CONCAT_FILENAME
+  const finalOutputPath = path.join(outputDir, concatFileName)
+  const relFinalPath =
+    path.relative(process.cwd(), finalOutputPath) || finalOutputPath
 
   await checkFFmpegAvailability()
 
@@ -108,46 +115,67 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     process.exit(1)
   }
 
+  // Check if content.mp4 already exists and force flag is not passed
+  if (fs.existsSync(finalOutputPath) && !options.overwrite) {
+    console.log(
+      picocolors.yellow(
+        `⚠ ${relFinalPath} already exists (use -f or --force to replace)\n`
+      )
+    )
+    return
+  }
+
   // Create output directory if needed
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true })
   }
 
-  console.log("Building videos...\n")
+  const keepSingles = Boolean(options.keepSingles)
+  const singlesDir = path.join(outputDir, CONFIG.SINGLES_DIR_NAME)
 
-  let createdCount = 0
+  if (keepSingles && !fs.existsSync(singlesDir)) {
+    fs.mkdirSync(singlesDir, { recursive: true })
+  }
 
-  for (let i = 0; i < result.pairs.length; i++) {
-    const pair = result.pairs[i]
-    const indexStr = `[${i + 1}/${result.pairs.length}]`
-    const targetFileName = `${pair.basename}.mp4`
-    const outputPath = path.join(outputDir, targetFileName)
-    const relOutputPath = path.relative(process.cwd(), outputPath) || outputPath
+  // Create temporary directory for segment rendering if not keeping singles directly
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "p2v_"))
+  const videoPathsForConcat: string[] = []
 
-    console.log(`${indexStr} ${pair.basename}`)
+  console.log("Processing media pairs...\n")
 
-    // Check if target file already exists and overwrite flag is not passed
-    if (fs.existsSync(outputPath) && !options.overwrite) {
-      console.log(
-        picocolors.yellow(
-          `      ⚠ ${relOutputPath} already exists (use -f or --force to replace)`
+  try {
+    for (let i = 0; i < result.pairs.length; i++) {
+      const pair = result.pairs[i]
+      const indexStr = `[${i + 1}/${result.pairs.length}]`
+      const singleFileName = `${pair.basename}.mp4`
+
+      const targetVideoPath = keepSingles
+        ? path.join(singlesDir, singleFileName)
+        : path.join(tempDir, `${i}_${pair.basename}.mp4`)
+
+      const relTarget =
+        path.relative(process.cwd(), targetVideoPath) || targetVideoPath
+
+      console.log(`${indexStr} ${pair.basename}`)
+
+      if (keepSingles && fs.existsSync(targetVideoPath) && !options.overwrite) {
+        console.log(
+          picocolors.yellow(
+            `      ⚠ ${relTarget} already exists (use -f or --force to replace)`
+          )
         )
-      )
-      console.log()
-      continue
-    }
+        videoPathsForConcat.push(targetVideoPath)
+        console.log()
+        continue
+      }
 
-    try {
       const duration = await getAudioDuration(pair.audioPath)
       console.log(`      Audio duration: ${duration.toFixed(3)}s`)
 
-      await renderVideo(pair.imagePath, pair.audioPath, outputPath, duration, {
-        fps: options.fps,
-      })
+      await renderVideo(pair.imagePath, pair.audioPath, targetVideoPath, duration)
 
-      // Verify output MP4
       const verification = await verifyVideo(
-        outputPath,
+        targetVideoPath,
         duration,
         pair.imageDimensions?.width ?? 0,
         pair.imageDimensions?.height ?? 0
@@ -156,24 +184,36 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       if (!verification.valid) {
         console.log(
           picocolors.red(
-            `      ✗ Output verification failed for ${relOutputPath}: ${verification.errors.join(", ")}`
+            `      ✗ Verification failed for segment ${pair.basename}: ${verification.errors.join(", ")}`
           )
         )
         process.exit(1)
       }
 
-      console.log(picocolors.green(`      ✓ ${relOutputPath}`))
-      createdCount++
-    } catch (err: any) {
-      console.error(
-        picocolors.red(`      ✗ Failed to render video: ${err.message}`)
-      )
-      process.exit(1)
+      if (keepSingles) {
+        console.log(picocolors.green(`      ✓ Saved single video: ${relTarget}`))
+      } else {
+        console.log(picocolors.green(`      ✓ Rendered segment`))
+      }
+
+      videoPathsForConcat.push(targetVideoPath)
+      console.log()
     }
 
-    console.log()
+    console.log(`Concatenating ${videoPathsForConcat.length} videos into ${concatFileName}...`)
+
+    await concatVideosWithGap(videoPathsForConcat, finalOutputPath)
+
+    console.log(picocolors.green(`\n✓ Created: ${relFinalPath}\n`))
+  } catch (err: any) {
+    console.error(picocolors.red(`\n✗ Failed to build video: ${err.message}`))
+    process.exit(1)
+  } finally {
+    // Clean up temporary segment directory
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
   }
 
   console.log("Done.")
-  console.log(`Created ${createdCount} videos.`)
 }

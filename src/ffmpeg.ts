@@ -3,6 +3,7 @@ import fs from "fs"
 import path from "path"
 import picocolors from "picocolors"
 import { VerificationResult } from "./types.js"
+import { CONFIG } from "./config.js"
 
 let resolvedFfmpegPath: string | null = null
 let resolvedFfprobePath: string | null = null
@@ -115,11 +116,10 @@ export async function renderVideo(
   imagePath: string,
   audioPath: string,
   outputPath: string,
-  duration: number,
-  options: { fps?: number } = {}
+  duration: number
 ): Promise<void> {
   const { ffmpegPath } = await checkFFmpegAvailability()
-  const fps = options.fps ?? 30
+  const fps = CONFIG.DEFAULT_FPS
 
   // Ensure target directory exists
   const dir = path.dirname(outputPath)
@@ -246,3 +246,127 @@ export async function verifyVideo(
     errors,
   }
 }
+
+export async function getVideoDimensions(
+  videoPath: string
+): Promise<{ width: number; height: number }> {
+  const { ffprobePath } = await checkFFmpegAvailability()
+
+  const { stdout } = await execa(ffprobePath, [
+    "-v",
+    "error",
+    "-select_streams",
+    "v:0",
+    "-show_entries",
+    "stream=width,height",
+    "-of",
+    "csv=p=0",
+    videoPath,
+  ])
+
+  const parts = stdout.trim().split(",")
+  if (parts.length < 2) {
+    throw new Error(`Failed to read dimensions for video "${videoPath}"`)
+  }
+
+  const width = parseInt(parts[0], 10)
+  const height = parseInt(parts[1], 10)
+
+  if (isNaN(width) || isNaN(height)) {
+    throw new Error(`Invalid dimensions for video "${videoPath}": ${stdout}`)
+  }
+
+  return { width, height }
+}
+
+export async function concatVideosWithGap(
+  videoPaths: string[],
+  outputPath: string
+): Promise<void> {
+  if (videoPaths.length === 0) return
+
+  const { ffmpegPath } = await checkFFmpegAvailability()
+  const fps = CONFIG.DEFAULT_FPS
+  const gapDuration = CONFIG.DEFAULT_GAP_DURATION
+  const gapColor = CONFIG.DEFAULT_GAP_COLOR
+
+  // Ensure target directory exists
+  const dir = path.dirname(outputPath)
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+
+  // Fetch dimensions for all input videos
+  const allDims = await Promise.all(
+    videoPaths.map((vPath) => getVideoDimensions(vPath))
+  )
+
+  // Standard width targetW (from first video or default 1080)
+  const targetW = Math.floor((allDims[0]?.width || CONFIG.DEFAULT_WIDTH) / 2) * 2
+
+  // Force strict aspect ratio canvas height (targetH = targetW * ASPECT_RATIO_HEIGHT / ASPECT_RATIO_WIDTH)
+  const targetH =
+    Math.floor(
+      ((targetW * CONFIG.ASPECT_RATIO_HEIGHT) / CONFIG.ASPECT_RATIO_WIDTH) / 2
+    ) * 2
+
+  const filterParts: string[] = []
+  const concatInputs: string[] = []
+
+  const ffmpegArgs: string[] = ["-y"]
+  for (const vPath of videoPaths) {
+    ffmpegArgs.push("-i", vPath)
+  }
+
+  for (let i = 0; i < videoPaths.length; i++) {
+    // Scale width to targetW (fullwidth), pad top/bottom with green screen (gapColor) for aspect frame
+    filterParts.push(
+      `[${i}:v]scale=${targetW}:-2,pad=${targetW}:'max(ih,${targetH})':0:'(oh-ih)/2':color=${gapColor},crop=${targetW}:${targetH},setsar=1,format=yuv420p[v${i}]`
+    )
+    filterParts.push(
+      `[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a${i}]`
+    )
+
+    concatInputs.push(`[v${i}][a${i}]`)
+
+    if (i < videoPaths.length - 1 && gapDuration > 0) {
+      filterParts.push(
+        `color=c=${gapColor}:s=${targetW}x${targetH}:r=${fps}:d=${gapDuration.toFixed(6)},format=yuv420p,setsar=1[gapv${i}]`
+      )
+      filterParts.push(
+        `anullsrc=r=44100:cl=stereo,atrim=duration=${gapDuration.toFixed(6)}[gapa${i}]`
+      )
+      concatInputs.push(`[gapv${i}][gapa${i}]`)
+    }
+  }
+
+  const segmentCount = concatInputs.length
+  filterParts.push(
+    `${concatInputs.join("")}concat=n=${segmentCount}:v=1:a=1[outv][outa]`
+  )
+
+  const filterComplex = filterParts.join(";")
+
+  ffmpegArgs.push(
+    "-filter_complex",
+    filterComplex,
+    "-map",
+    "[outv]",
+    "-map",
+    "[outa]",
+    "-c:v",
+    "libx264",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k",
+    "-pix_fmt",
+    "yuv420p",
+    "-r",
+    fps.toString(),
+    outputPath
+  )
+
+  await execa(ffmpegPath, ffmpegArgs)
+}
+

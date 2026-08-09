@@ -31,7 +31,7 @@ export interface BuildOptions {
   input: string
   output: string
   overwrite?: boolean
-  fps?: number
+  keepSingles?: boolean
 }
 
 export interface VerificationResult {

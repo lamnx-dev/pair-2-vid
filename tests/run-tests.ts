@@ -1,7 +1,7 @@
 import fs from "fs"
 import path from "path"
 import { execa } from "execa"
-import { checkFFmpegAvailability } from "../src/ffmpeg.js"
+import { checkFFmpegAvailability, getAudioDuration } from "../src/ffmpeg.js"
 
 const TEST_DIR = path.resolve("./test_temp")
 
@@ -84,18 +84,37 @@ async function main() {
     validInputDir,
     "-o",
     validOutputDir,
+    "-s",
   ])
   console.log(buildResult.stdout)
 
-  // Check generated output files
-  const out01 = path.join(validOutputDir, "01.mp4")
-  const out02 = path.join(validOutputDir, "02.mp4")
-  const out03 = path.join(validOutputDir, "03.mp4")
+  // Check generated output files in singles directory
+  const singlesDir = path.join(validOutputDir, "singles")
+  const out01 = path.join(singlesDir, "01.mp4")
+  const out02 = path.join(singlesDir, "02.mp4")
+  const out03 = path.join(singlesDir, "03.mp4")
 
   if (!fs.existsSync(out01) || !fs.existsSync(out02) || !fs.existsSync(out03)) {
-    throw new Error("Generated MP4 output files missing!")
+    throw new Error("Generated MP4 output files missing in singles directory!")
   }
-  console.log("✓ All 3 MP4 files generated successfully!")
+  console.log("✓ All 3 single MP4 files generated successfully!")
+
+  const contentMp4 = path.join(validOutputDir, "content.mp4")
+  if (!fs.existsSync(contentMp4)) {
+    throw new Error("Generated content.mp4 missing!")
+  }
+  const contentDuration = await getAudioDuration(contentMp4)
+  console.log(
+    `✓ Concatenated content.mp4 generated successfully (Duration: ${contentDuration.toFixed(2)}s)!`
+  )
+
+  // Expected total duration: 3.5 + 5.0 + 2.2 + 2 * 0.2 = 11.1s
+  const expectedTotalDuration = 3.5 + 5.0 + 2.2 + 2 * 0.2
+  if (Math.abs(contentDuration - expectedTotalDuration) > 0.5) {
+    throw new Error(
+      `Concatenated video duration mismatch: Expected ~${expectedTotalDuration}s, got ${contentDuration}s`
+    )
+  }
 
   // Test overwrite warning when running without -f / --force
   console.log("\n--- Test 3: Overwrite warning check ---")
