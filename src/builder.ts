@@ -1,7 +1,9 @@
 import fs from "fs"
+import { Ora } from "ora"
 import os from "os"
 import path from "path"
 import picocolors from "picocolors"
+import { CONFIG } from "./config.js"
 import {
   checkFFmpegAvailability,
   concatVideosWithGap,
@@ -11,59 +13,18 @@ import {
 } from "./ffmpeg.js"
 import { scanInputDirectory } from "./scanner.js"
 import { BuildOptions, ScanResult } from "./types.js"
-import { CONFIG } from "./config.js"
+import { createSpinner } from "./ui.js"
 
 export async function validateScanResult(
-  inputDir: string
+  inputDir: string,
+  spinner: Ora
 ): Promise<ScanResult | null> {
-  console.log("Scanning input...\n")
-
   let result: ScanResult
   try {
     result = await scanInputDirectory(inputDir)
   } catch (err: any) {
-    console.error(picocolors.red(`Error scanning directory: ${err.message}`))
+    spinner.fail(`Error scanning directory: ${err.message}`)
     return null
-  }
-
-  // Print duplicate image errors
-  if (result.duplicateImages.size > 0) {
-    for (const [basename, files] of result.duplicateImages.entries()) {
-      console.log(
-        picocolors.red(`✗ Multiple images found for "${basename}":\n`)
-      )
-      for (const file of files) {
-        console.log(`- ${file}`)
-      }
-      console.log("\nPlease keep only one image.\n")
-    }
-  }
-
-  // Print duplicate audio errors
-  if (result.duplicateAudios.size > 0) {
-    for (const [basename, files] of result.duplicateAudios.entries()) {
-      console.log(
-        picocolors.red(`✗ Multiple audios found for "${basename}":\n`)
-      )
-      for (const file of files) {
-        console.log(`- ${file}`)
-      }
-      console.log("\nPlease keep only one audio.\n")
-    }
-  }
-
-  // Print missing image errors
-  if (result.missingImages.length > 0) {
-    for (const audioFile of result.missingImages) {
-      console.log(picocolors.red(`✗ Missing image for: ${audioFile}`))
-    }
-  }
-
-  // Print missing audio errors
-  if (result.missingAudios.length > 0) {
-    for (const imageFile of result.missingAudios) {
-      console.log(picocolors.red(`✗ Missing audio for: ${imageFile}`))
-    }
   }
 
   if (
@@ -72,35 +33,31 @@ export async function validateScanResult(
     result.missingImages.length > 0 ||
     result.missingAudios.length > 0
   ) {
+    spinner.fail("Scan failed with invalid files")
     return null
   }
 
   if (result.pairs.length === 0) {
-    console.log(picocolors.yellow("⚠ No media pairs found in input directory."))
+    spinner.warn("No media pairs found in input directory")
     return null
   }
-
-  // Print matched valid pairs
-  for (const pair of result.pairs) {
-    console.log(
-      picocolors.green(`✓ ${pair.imageFileName} + ${pair.audioFileName}`)
-    )
-  }
-
-  console.log(`\nFound ${result.pairs.length} valid pairs.\n`)
-
-  console.log(picocolors.green("✓ No missing files"))
-  console.log(picocolors.green("✓ No duplicate basenames"))
 
   return result
 }
 
 export async function validateCommand(inputDir: string): Promise<boolean> {
-  const result = await validateScanResult(inputDir)
+  const spinner = createSpinner("Scanning input directory...")
+  const result = await validateScanResult(inputDir, spinner)
+  if (result) {
+    spinner.succeed(
+      `Found ${picocolors.bold(result.pairs.length.toString())} valid media pairs ${picocolors.dim(`(${result.pairs.map((p) => p.basename).join(", ")})`)}`
+    )
+  }
   return result !== null
 }
 
 export async function buildCommand(options: BuildOptions): Promise<void> {
+  const startTime = Date.now()
   const inputDir = path.resolve(options.input)
   const outputDir = path.resolve(options.output)
   const concatFileName = CONFIG.DEFAULT_CONCAT_FILENAME
@@ -108,24 +65,23 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   const relFinalPath =
     path.relative(process.cwd(), finalOutputPath) || finalOutputPath
 
-  await checkFFmpegAvailability()
+  const spinner = createSpinner("Checking FFmpeg availability...")
 
-  const result = await validateScanResult(inputDir)
+  await checkFFmpegAvailability(spinner)
+
+  spinner.text = "Scanning input directory..."
+  const result = await validateScanResult(inputDir, spinner)
   if (!result) {
     process.exit(1)
   }
 
-  // Check if content.mp4 already exists and force flag is not passed
   if (fs.existsSync(finalOutputPath) && !options.overwrite) {
-    console.log(
-      picocolors.yellow(
-        `⚠ ${relFinalPath} already exists (use -f or --force to replace)\n`
-      )
+    spinner.warn(
+      `${relFinalPath} already exists (use -f or --force to replace)`
     )
     return
   }
 
-  // Create output directory if needed
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true })
   }
@@ -137,42 +93,32 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     fs.mkdirSync(singlesDir, { recursive: true })
   }
 
-  // Create temporary directory for segment rendering if not keeping singles directly
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "p2v_"))
   const videoPathsForConcat: string[] = []
-
-  console.log("Processing media pairs...\n")
 
   try {
     for (let i = 0; i < result.pairs.length; i++) {
       const pair = result.pairs[i]
-      const indexStr = `[${i + 1}/${result.pairs.length}]`
       const singleFileName = `${pair.basename}.mp4`
 
       const targetVideoPath = keepSingles
         ? path.join(singlesDir, singleFileName)
         : path.join(tempDir, `${i}_${pair.basename}.mp4`)
 
-      const relTarget =
-        path.relative(process.cwd(), targetVideoPath) || targetVideoPath
-
-      console.log(`${indexStr} ${pair.basename}`)
+      spinner.text = `Processing media pairs (${i + 1}/${result.pairs.length})...`
 
       if (keepSingles && fs.existsSync(targetVideoPath) && !options.overwrite) {
-        console.log(
-          picocolors.yellow(
-            `      ⚠ ${relTarget} already exists (use -f or --force to replace)`
-          )
-        )
         videoPathsForConcat.push(targetVideoPath)
-        console.log()
         continue
       }
 
       const duration = await getAudioDuration(pair.audioPath)
-      console.log(`      Audio duration: ${duration.toFixed(3)}s`)
-
-      await renderVideo(pair.imagePath, pair.audioPath, targetVideoPath, duration)
+      await renderVideo(
+        pair.imagePath,
+        pair.audioPath,
+        targetVideoPath,
+        duration
+      )
 
       const verification = await verifyVideo(
         targetVideoPath,
@@ -182,38 +128,30 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       )
 
       if (!verification.valid) {
-        console.log(
-          picocolors.red(
-            `      ✗ Verification failed for segment ${pair.basename}: ${verification.errors.join(", ")}`
-          )
+        spinner.fail(
+          `Verification failed for ${pair.basename}: ${verification.errors.join(", ")}`
         )
         process.exit(1)
       }
 
-      if (keepSingles) {
-        console.log(picocolors.green(`      ✓ Saved single video: ${relTarget}`))
-      } else {
-        console.log(picocolors.green(`      ✓ Rendered segment`))
-      }
-
       videoPathsForConcat.push(targetVideoPath)
-      console.log()
     }
 
-    console.log(`Concatenating ${videoPathsForConcat.length} videos into ${concatFileName}...`)
-
+    spinner.text = `Concatenating ${videoPathsForConcat.length} videos into ${concatFileName}...`
     await concatVideosWithGap(videoPathsForConcat, finalOutputPath)
 
-    console.log(picocolors.green(`\n✓ Created: ${relFinalPath}\n`))
+    const elapsedTime = (Date.now() - startTime) / 1000
+    const timeStr = picocolors.dim(` in ${elapsedTime.toFixed(2)}s`)
+    spinner.succeed(
+      ` Done! Rendered ${result.pairs.length} pairs into ${picocolors.bold(picocolors.cyan(relFinalPath))}${timeStr}`
+    )
   } catch (err: any) {
-    console.error(picocolors.red(`\n✗ Failed to build video: ${err.message}`))
+    if (spinner.isSpinning)
+      spinner.fail(`Failed to build video: ${err.message}`)
     process.exit(1)
   } finally {
-    // Clean up temporary segment directory
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true })
     }
   }
-
-  console.log("Done.")
 }

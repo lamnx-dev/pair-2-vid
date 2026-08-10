@@ -1,9 +1,10 @@
 import { execa } from "execa"
 import fs from "fs"
+import { Ora } from "ora"
 import path from "path"
 import picocolors from "picocolors"
-import { VerificationResult } from "./types.js"
 import { CONFIG } from "./config.js"
+import { VerificationResult } from "./types.js"
 
 let resolvedFfmpegPath: string | null = null
 let resolvedFfprobePath: string | null = null
@@ -30,7 +31,7 @@ async function getExecutablePath(
   return null
 }
 
-export async function checkFFmpegAvailability(): Promise<{
+export async function checkFFmpegAvailability(spinner?: Ora): Promise<{
   ffmpegPath: string
   ffprobePath: string
 }> {
@@ -42,14 +43,16 @@ export async function checkFFmpegAvailability(): Promise<{
   const ffprobe = await getExecutablePath("ffprobe")
 
   if (!ffmpeg || !ffprobe) {
-    console.error(
-      picocolors.red(
-        "\nFFmpeg or FFprobe binaries from npm packages were not found."
+    const errorMsg =
+      "FFmpeg or FFprobe binaries from npm packages were not found"
+    if (spinner) {
+      spinner.fail(errorMsg)
+    } else {
+      console.error(picocolors.red(`\n${errorMsg}`))
+      console.error(
+        "\nPlease ensure @ffmpeg-installer/ffmpeg and @ffprobe-installer/ffprobe are properly installed.\n"
       )
-    )
-    console.error(
-      "\nPlease ensure @ffmpeg-installer/ffmpeg and @ffprobe-installer/ffprobe are properly installed.\n"
-    )
+    }
     process.exit(1)
   }
 
@@ -302,12 +305,13 @@ export async function concatVideosWithGap(
   )
 
   // Standard width targetW (from first video or default 1080)
-  const targetW = Math.floor((allDims[0]?.width || CONFIG.DEFAULT_WIDTH) / 2) * 2
+  const targetW =
+    Math.floor((allDims[0]?.width || CONFIG.DEFAULT_WIDTH) / 2) * 2
 
   // Force strict aspect ratio canvas height (targetH = targetW * ASPECT_RATIO_HEIGHT / ASPECT_RATIO_WIDTH)
   const targetH =
     Math.floor(
-      ((targetW * CONFIG.ASPECT_RATIO_HEIGHT) / CONFIG.ASPECT_RATIO_WIDTH) / 2
+      (targetW * CONFIG.ASPECT_RATIO_HEIGHT) / CONFIG.ASPECT_RATIO_WIDTH / 2
     ) * 2
 
   const filterParts: string[] = []
@@ -369,4 +373,3 @@ export async function concatVideosWithGap(
 
   await execa(ffmpegPath, ffmpegArgs)
 }
-

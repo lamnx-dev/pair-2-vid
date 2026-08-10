@@ -1,6 +1,6 @@
 {
   "name": "pair-2-vid",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Công cụ CLI chuyển đổi hàng loạt các cặp file ảnh và âm thanh thành video MP4",
   "main": "dist/cli.js",
   "type": "module",
@@ -22,6 +22,7 @@
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "commander": "^13.1.0",
     "execa": "^9.6.0",
+    "ora": "^9.4.1",
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
