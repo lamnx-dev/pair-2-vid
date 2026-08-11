@@ -3,6 +3,7 @@ import { Ora } from "ora"
 import os from "os"
 import path from "path"
 import picocolors from "picocolors"
+import { fileURLToPath } from "url"
 import { CONFIG } from "./config.js"
 import {
   checkFFmpegAvailability,
@@ -12,13 +13,72 @@ import {
   verifyVideo,
 } from "./ffmpeg.js"
 import { scanInputDirectory } from "./scanner.js"
-import { BuildOptions, ScanResult } from "./types.js"
+import { OnnxTTSEngine } from "./tts/onnx.js"
+import { BuildOptions, MediaPair, ScanResult, TTSItem } from "./types.js"
 import { createSpinner } from "./ui.js"
 
-export async function validateScanResult(
-  inputDir: string,
-  spinner: Ora
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const pkgRootDir = path.resolve(__dirname, "..")
+
+function resolveModelAssetPath(relativePath: string): string {
+  return path.resolve(pkgRootDir, relativePath)
+}
+
+async function synthesizeTTSForItems({
+  items,
+  getWavPath,
+  force,
+}: {
+  items: TTSItem[]
+  getWavPath: (item: TTSItem) => string
+  force?: boolean
+}): Promise<{ synthesized: number; skipped: number }> {
+  if (items.length === 0) return { synthesized: 0, skipped: 0 }
+
+  const spinner = createSpinner("Initializing ONNX TTS Engine...")
+
+  const modelName = CONFIG.DEFAULT_TTS_MODEL
+  const modelPath = resolveModelAssetPath(`models/${modelName}.onnx`)
+  const configPath = resolveModelAssetPath(`models/${modelName}.onnx.json`)
+
+  const ttsEngine = new OnnxTTSEngine({
+    modelPath,
+    configPath,
+    lengthScale: 1.0 / CONFIG.DEFAULT_TTS_SPEED,
+  })
+  await ttsEngine.init()
+
+  let synthesized = 0
+  let skipped = 0
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    const wavPath = getWavPath(item)
+    if (!force && fs.existsSync(wavPath)) {
+      item.audioPath = wavPath
+      skipped++
+      continue
+    }
+    spinner.text = `[${i + 1}/${items.length}] Synthesizing "${item.basename}"...`
+    spinner.start()
+    await ttsEngine.synthesizeFile(item.textPath, wavPath)
+    item.audioPath = wavPath
+    synthesized++
+  }
+
+  const parts: string[] = []
+  if (synthesized > 0)
+    parts.push(picocolors.green(`${synthesized} synthesized`))
+  if (skipped > 0) parts.push(picocolors.yellow(`${skipped} skipped`))
+
+  spinner.succeed(`TTS audio files: ${parts.join(", ") || "0 files"}`)
+
+  return { synthesized, skipped }
+}
+
+async function validateScanResult(
+  inputDir: string
 ): Promise<ScanResult | null> {
+  const spinner = createSpinner("Scanning input directory...")
   let result: ScanResult
   try {
     result = await scanInputDirectory(inputDir)
@@ -33,26 +93,52 @@ export async function validateScanResult(
     result.missingImages.length > 0 ||
     result.missingAudios.length > 0
   ) {
-    spinner.fail("Scan failed with invalid files")
+    spinner.fail("Validation failed with invalid files")
+
+    if (result.duplicateImages.size > 0) {
+      console.log(picocolors.yellow("\nDuplicate Image Basenames:"))
+      for (const [basename, files] of result.duplicateImages.entries()) {
+        console.log(`- ${basename}: ${files.join(", ")}`)
+      }
+    }
+    if (result.duplicateAudios.size > 0) {
+      console.log(picocolors.yellow("\nDuplicate Audio Basenames:"))
+      for (const [basename, files] of result.duplicateAudios.entries()) {
+        console.log(`- ${basename}: ${files.join(", ")}`)
+      }
+    }
+
+    if (result.missingImages.length > 0) {
+      console.log(picocolors.red("\nPairs missing Image files:"))
+      for (const basename of result.missingImages) {
+        console.log(`- ${basename}`)
+      }
+    }
+
+    if (result.missingAudios.length > 0) {
+      console.log(picocolors.red("\nPairs missing Audio files:"))
+      for (const basename of result.missingAudios) {
+        console.log(`- ${basename}`)
+      }
+    }
+
     return null
   }
 
   if (result.pairs.length === 0) {
-    spinner.warn("No media pairs found in input directory")
+    spinner.fail("No valid image-audio pairs found")
     return null
   }
 
+  spinner.succeed(
+    `Scanned input directory (${picocolors.cyan(result.pairs.length.toString())} media pairs found)`
+  )
   return result
 }
 
 export async function validateCommand(inputDir: string): Promise<boolean> {
-  const spinner = createSpinner("Scanning input directory...")
-  const result = await validateScanResult(inputDir, spinner)
-  if (result) {
-    spinner.succeed(
-      `Found ${picocolors.bold(result.pairs.length.toString())} valid media pairs ${picocolors.dim(`(${result.pairs.map((p) => p.basename).join(", ")})`)}`
-    )
-  }
+  const resolvedPath = path.resolve(inputDir)
+  const result = await validateScanResult(resolvedPath)
   return result !== null
 }
 
@@ -60,24 +146,24 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   const startTime = Date.now()
   const inputDir = path.resolve(options.input)
   const outputDir = path.resolve(options.output)
-  const concatFileName = CONFIG.DEFAULT_CONCAT_FILENAME
-  const finalOutputPath = path.join(outputDir, concatFileName)
+  const outputFileName = CONFIG.DEFAULT_OUTPUT_FILENAME
+  const finalOutputPath = path.join(outputDir, outputFileName)
   const relFinalPath =
     path.relative(process.cwd(), finalOutputPath) || finalOutputPath
 
-  const spinner = createSpinner("Checking FFmpeg availability...")
+  // Step 1: Check FFmpeg availability
+  await checkFFmpegAvailability()
 
-  await checkFFmpegAvailability(spinner)
-
-  spinner.text = "Scanning input directory..."
-  const result = await validateScanResult(inputDir, spinner)
+  // Step 2: Scan input directory
+  const result = await validateScanResult(inputDir)
   if (!result) {
     process.exit(1)
   }
 
-  if (fs.existsSync(finalOutputPath) && !options.overwrite) {
-    spinner.warn(
-      `${relFinalPath} already exists (use -f or --force to replace)`
+  if (fs.existsSync(finalOutputPath) && !options.force) {
+    const warnSpinner = createSpinner("Checking output file...")
+    warnSpinner.warn(
+      `${picocolors.cyan(relFinalPath)} already exists (use ${picocolors.yellow("-f")} or ${picocolors.yellow("--force")} to replace)`
     )
     return
   }
@@ -86,31 +172,60 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     fs.mkdirSync(outputDir, { recursive: true })
   }
 
-  const keepSingles = Boolean(options.keepSingles)
-  const singlesDir = path.join(outputDir, CONFIG.SINGLES_DIR_NAME)
+  const keepVal =
+    typeof options.keep === "string"
+      ? options.keep.toLowerCase()
+      : options.keep
+        ? "all"
+        : "none"
 
-  if (keepSingles && !fs.existsSync(singlesDir)) {
-    fs.mkdirSync(singlesDir, { recursive: true })
-  }
+  const keepVideo = keepVal === "video" || keepVal === "all"
+  const keepAudio = keepVal === "audio" || keepVal === "all"
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "p2v_"))
   const videoPathsForConcat: string[] = []
+  let currentSpinner: Ora | null = null
 
   try {
+    // Step 3: Synthesize TTS for pairs requiring it
+    const ttsNeedPairs = result.pairs.filter((p): p is MediaPair & TTSItem =>
+      Boolean(p.textPath && !p.audioPath)
+    )
+    await synthesizeTTSForItems({
+      items: ttsNeedPairs,
+      getWavPath: (item) => {
+        return path.join(
+          keepAudio ? outputDir : tempDir,
+          `${item.basename}.wav`
+        )
+      },
+    })
+
+    // Step 4: Render single video segments
+    const renderSpinner = createSpinner("Rendering video segments...")
+    currentSpinner = renderSpinner
+    let renderedCount = 0
+    let skippedCount = 0
+
     for (let i = 0; i < result.pairs.length; i++) {
       const pair = result.pairs[i]
-      const singleFileName = `${pair.basename}.mp4`
 
-      const targetVideoPath = keepSingles
-        ? path.join(singlesDir, singleFileName)
-        : path.join(tempDir, `${i}_${pair.basename}.mp4`)
+      if (!pair.audioPath) {
+        throw new Error(`Missing audio for pair "${pair.basename}"`)
+      }
 
-      spinner.text = `Processing media pairs (${i + 1}/${result.pairs.length})...`
+      const targetVideoPath = path.join(
+        keepVideo ? outputDir : tempDir,
+        `${pair.basename}.mp4`
+      )
 
-      if (keepSingles && fs.existsSync(targetVideoPath) && !options.overwrite) {
+      if (keepVideo && fs.existsSync(targetVideoPath) && !options.force) {
         videoPathsForConcat.push(targetVideoPath)
+        skippedCount++
         continue
       }
+
+      renderSpinner.text = `Rendering segment ${i + 1}/${result.pairs.length} (${pair.basename})...`
 
       const duration = await getAudioDuration(pair.audioPath)
       await renderVideo(
@@ -128,30 +243,114 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       )
 
       if (!verification.valid) {
-        spinner.fail(
+        renderSpinner.fail(
           `Verification failed for ${pair.basename}: ${verification.errors.join(", ")}`
         )
         process.exit(1)
       }
 
       videoPathsForConcat.push(targetVideoPath)
+      renderedCount++
     }
 
-    spinner.text = `Concatenating ${videoPathsForConcat.length} videos into ${concatFileName}...`
+    const renderParts: string[] = []
+    if (renderedCount > 0)
+      renderParts.push(picocolors.green(`${renderedCount} rendered`))
+    if (skippedCount > 0)
+      renderParts.push(picocolors.yellow(`${skippedCount} skipped`))
+    renderSpinner.succeed(
+      `Video segments: ${renderParts.join(", ") || "0 segments"}`
+    )
+
+    // Step 5: Concatenate video clips into final output MP4
+    const concatSpinner = createSpinner(
+      `Concatenating ${videoPathsForConcat.length} clips into ${outputFileName}...`
+    )
+    currentSpinner = concatSpinner
     await concatVideosWithGap(videoPathsForConcat, finalOutputPath)
 
     const elapsedTime = (Date.now() - startTime) / 1000
     const timeStr = picocolors.dim(` in ${elapsedTime.toFixed(2)}s`)
-    spinner.succeed(
-      ` Done! Rendered ${result.pairs.length} pairs into ${picocolors.bold(picocolors.cyan(relFinalPath))}${timeStr}`
+    concatSpinner.succeed(
+      `Rendered final video to ${picocolors.cyan(relFinalPath)}${timeStr}`
     )
   } catch (err: any) {
-    if (spinner.isSpinning)
-      spinner.fail(`Failed to build video: ${err.message}`)
+    if (currentSpinner && currentSpinner.isSpinning) {
+      currentSpinner.fail(`Failed to build video: ${err.message}`)
+    } else {
+      console.error(picocolors.red(`✖ Failed to build video: ${err.message}`))
+    }
     process.exit(1)
   } finally {
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true })
     }
+  }
+}
+
+export async function ttsCommand({
+  input,
+  output,
+  force,
+}: {
+  input: string
+  output: string
+  force?: boolean
+}): Promise<void> {
+  const inputDir = path.resolve(input)
+  const outDir = path.resolve(output)
+
+  let spinner = createSpinner(`Scanning input directory "${inputDir}"...`)
+
+  try {
+    const files = fs.readdirSync(inputDir)
+    const textExts = new Set<string>(CONFIG.SUPPORTED_TEXT_EXTS)
+    const ttsItems: TTSItem[] = []
+
+    for (const file of files) {
+      const fullPath = path.join(inputDir, file)
+      const stat = fs.statSync(fullPath)
+      if (!stat.isFile()) continue
+
+      const ext = path.extname(file).toLowerCase()
+      if (textExts.has(ext)) {
+        const basename = path.basename(file, ext).toLowerCase()
+        ttsItems.push({
+          basename,
+          textPath: fullPath,
+        })
+      }
+    }
+
+    if (ttsItems.length === 0) {
+      spinner.text = "Checking text files..."
+      const extsStr = CONFIG.SUPPORTED_TEXT_EXTS.join(", ")
+      spinner.info(`No text files (${extsStr}) found in "${inputDir}".`)
+      return
+    }
+
+    spinner.succeed(
+      `Scanned input directory (${picocolors.cyan(ttsItems.length.toString())} text file(s) found)`
+    )
+
+    if (!fs.existsSync(outDir)) {
+      fs.mkdirSync(outDir, { recursive: true })
+    }
+
+    const getWavPath = (item: TTSItem) =>
+      path.join(outDir, `${item.basename}.wav`)
+
+    await synthesizeTTSForItems({
+      items: ttsItems,
+      getWavPath,
+      force,
+    })
+  } catch (err: any) {
+    if (spinner.isSpinning) {
+      spinner.fail(`TTS synthesis failed: ${err.message}`)
+    } else {
+      console.error(picocolors.red(`✖ TTS synthesis failed: ${err.message}`))
+    }
+    process.exit(1)
   }
 }

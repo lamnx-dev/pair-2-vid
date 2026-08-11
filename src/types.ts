@@ -1,13 +1,15 @@
+export interface TTSItem {
+  basename: string
+  textPath: string
+  audioPath?: string
+}
+
 export interface MediaPair {
   basename: string
   imagePath: string
-  audioPath: string
-  imageFileName: string
-  audioFileName: string
-  imageExt: string
-  audioExt: string
+  audioPath?: string
+  textPath?: string
   imageDimensions?: { width: number; height: number }
-  audioDuration?: number
 }
 
 export interface ImageDimensionInfo {
@@ -19,19 +21,18 @@ export interface ImageDimensionInfo {
 
 export interface ScanResult {
   pairs: MediaPair[]
-  missingImages: string[] // audio file names without image
-  missingAudios: string[] // image file names without audio
+  missingImages: string[] // audio or text file names without image
+  missingAudios: string[] // image file names without audio or text
   duplicateImages: Map<string, string[]> // basename -> array of image file names
   duplicateAudios: Map<string, string[]> // basename -> array of audio file names
   imageDimensions: ImageDimensionInfo[]
-  isValid: boolean
 }
 
 export interface BuildOptions {
   input: string
   output: string
-  overwrite?: boolean
-  keepSingles?: boolean
+  force?: boolean
+  keep?: string
 }
 
 export interface VerificationResult {

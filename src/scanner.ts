@@ -1,10 +1,12 @@
 import fs from "fs"
 import path from "path"
+import { CONFIG } from "./config.js"
 import { getImageDimensions } from "./ffmpeg.js"
 import { ImageDimensionInfo, MediaPair, ScanResult } from "./types.js"
 
-const SUPPORTED_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp"])
-const SUPPORTED_AUDIO_EXTS = new Set([".mp3", ".wav", ".m4a", ".aac"])
+const SUPPORTED_IMAGE_EXTS = new Set<string>(CONFIG.SUPPORTED_IMAGE_EXTS)
+const SUPPORTED_AUDIO_EXTS = new Set<string>(CONFIG.SUPPORTED_AUDIO_EXTS)
+const SUPPORTED_TEXT_EXTS = new Set<string>(CONFIG.SUPPORTED_TEXT_EXTS)
 
 export async function scanInputDirectory(
   inputDir: string
@@ -17,6 +19,7 @@ export async function scanInputDirectory(
 
   const imagesByBasename = new Map<string, string[]>()
   const audiosByBasename = new Map<string, string[]>()
+  const textsByBasename = new Map<string, string[]>()
 
   for (const file of files) {
     const fullPath = path.join(inputDir, file)
@@ -34,6 +37,10 @@ export async function scanInputDirectory(
       const existing = audiosByBasename.get(basename) || []
       existing.push(file)
       audiosByBasename.set(basename, existing)
+    } else if (SUPPORTED_TEXT_EXTS.has(ext)) {
+      const existing = textsByBasename.get(basename) || []
+      existing.push(file)
+      textsByBasename.set(basename, existing)
     }
   }
 
@@ -52,10 +59,11 @@ export async function scanInputDirectory(
     }
   }
 
-  // Find all unique basenames across images & audio
+  // Find all unique basenames across images, audio & text
   const allBasenames = new Set([
     ...imagesByBasename.keys(),
     ...audiosByBasename.keys(),
+    ...textsByBasename.keys(),
   ])
 
   const pairs: MediaPair[] = []
@@ -65,29 +73,40 @@ export async function scanInputDirectory(
   for (const base of allBasenames) {
     const imgList = imagesByBasename.get(base) || []
     const audList = audiosByBasename.get(base) || []
+    const txtList = textsByBasename.get(base) || []
 
-    const hasDuplicate = imgList.length > 1 || audList.length > 1
+    const hasDuplicateImageOrAudio = imgList.length > 1 || audList.length > 1
 
-    if (imgList.length === 0 && audList.length > 0) {
+    if (imgList.length === 0 && (audList.length > 0 || txtList.length > 0)) {
       for (const audFile of audList) {
         missingImages.push(audFile)
       }
-    } else if (audList.length === 0 && imgList.length > 0) {
+      for (const txtFile of txtList) {
+        if (!audList.includes(txtFile)) {
+          missingImages.push(txtFile)
+        }
+      }
+    } else if (audList.length === 0 && txtList.length === 0 && imgList.length > 0) {
       for (const imgFile of imgList) {
         missingAudios.push(imgFile)
       }
-    } else if (!hasDuplicate && imgList.length === 1 && audList.length === 1) {
+    } else if (!hasDuplicateImageOrAudio && imgList.length === 1) {
       const imgFileName = imgList[0]
-      const audFileName = audList[0]
-      pairs.push({
+      const pair: MediaPair = {
         basename: base,
         imagePath: path.join(inputDir, imgFileName),
-        audioPath: path.join(inputDir, audFileName),
-        imageFileName: imgFileName,
-        audioFileName: audFileName,
-        imageExt: path.extname(imgFileName).toLowerCase(),
-        audioExt: path.extname(audFileName).toLowerCase(),
-      })
+      }
+
+      if (audList.length === 1) {
+        pair.audioPath = path.join(inputDir, audList[0])
+        if (txtList.length === 1) {
+          pair.textPath = path.join(inputDir, txtList[0])
+        }
+        pairs.push(pair)
+      } else if (audList.length === 0 && txtList.length === 1) {
+        pair.textPath = path.join(inputDir, txtList[0])
+        pairs.push(pair)
+      }
     }
   }
 
@@ -101,7 +120,7 @@ export async function scanInputDirectory(
       const dims = await getImageDimensions(pair.imagePath)
       pair.imageDimensions = dims
       dimensionInfos.push({
-        fileName: pair.imageFileName,
+        fileName: path.basename(pair.imagePath),
         basename: pair.basename,
         width: dims.width,
         height: dims.height,
@@ -111,13 +130,6 @@ export async function scanInputDirectory(
     }
   }
 
-  const isValid =
-    missingImages.length === 0 &&
-    missingAudios.length === 0 &&
-    duplicateImages.size === 0 &&
-    duplicateAudios.size === 0 &&
-    pairs.length > 0
-
   return {
     pairs,
     missingImages,
@@ -125,6 +137,5 @@ export async function scanInputDirectory(
     duplicateImages,
     duplicateAudios,
     imageDimensions: dimensionInfos,
-    isValid,
   }
 }

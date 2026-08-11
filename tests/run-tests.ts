@@ -1,6 +1,7 @@
+import { execa } from "execa"
 import fs from "fs"
 import path from "path"
-import { execa } from "execa"
+import { CONFIG } from "../src/config.js"
 import { checkFFmpegAvailability, getAudioDuration } from "../src/ffmpeg.js"
 
 const TEST_DIR = path.resolve("./test_temp")
@@ -42,7 +43,12 @@ async function main() {
 
   // Clean test temp dir
   if (fs.existsSync(TEST_DIR)) {
-    fs.rmSync(TEST_DIR, { recursive: true, force: true })
+    fs.rmSync(TEST_DIR, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    })
   }
   fs.mkdirSync(TEST_DIR, { recursive: true })
 
@@ -67,9 +73,23 @@ async function main() {
   )
   await createTestAudio(path.join(validInputDir, "03.aac"), 2.2)
 
+  // 4. Create WebP + TXT pair for TTS (04.webp 1080x1920, 04.txt)
+  await createTestImage(
+    path.join(validInputDir, "04.webp"),
+    1080,
+    1920,
+    "yellow"
+  )
+  fs.writeFileSync(
+    path.join(validInputDir, "04.txt"),
+    "Xin chào các bạn đây là video thử nghiệm tts từ file văn bản",
+    "utf-8"
+  )
+
   console.log("\n--- Test 1: Validation on Valid Input ---")
-  const valResult = await execa("pnpm", [
-    "start",
+  const valResult = await execa("npx", [
+    "tsx",
+    "src/cli.ts",
     "validate",
     "-i",
     validInputDir,
@@ -77,49 +97,66 @@ async function main() {
   console.log(valResult.stdout)
 
   console.log("\n--- Test 2: Build Videos from Valid Input ---")
-  const buildResult = await execa("pnpm", [
-    "start",
+  const buildResult = await execa("npx", [
+    "tsx",
+    "src/cli.ts",
     "build",
     "-i",
     validInputDir,
     "-o",
     validOutputDir,
-    "-s",
+    "-k",
+    "video",
   ])
   console.log(buildResult.stdout)
 
-  // Check generated output files in singles directory
-  const singlesDir = path.join(validOutputDir, "singles")
-  const out01 = path.join(singlesDir, "01.mp4")
-  const out02 = path.join(singlesDir, "02.mp4")
-  const out03 = path.join(singlesDir, "03.mp4")
+  // Check generated output files in output directory
+  const out01 = path.join(validOutputDir, "01.mp4")
+  const out02 = path.join(validOutputDir, "02.mp4")
+  const out03 = path.join(validOutputDir, "03.mp4")
+  const out04 = path.join(validOutputDir, "04.mp4")
 
-  if (!fs.existsSync(out01) || !fs.existsSync(out02) || !fs.existsSync(out03)) {
-    throw new Error("Generated MP4 output files missing in singles directory!")
+  if (
+    !fs.existsSync(out01) ||
+    !fs.existsSync(out02) ||
+    !fs.existsSync(out03) ||
+    !fs.existsSync(out04)
+  ) {
+    throw new Error(
+      "Generated single MP4 output files missing in output directory!"
+    )
   }
-  console.log("✓ All 3 single MP4 files generated successfully!")
+  console.log(
+    "✓ All 4 single MP4 files (including TTS pair) generated successfully!"
+  )
 
-  const contentMp4 = path.join(validOutputDir, "content.mp4")
+  const contentMp4 = path.join(validOutputDir, CONFIG.DEFAULT_OUTPUT_FILENAME)
   if (!fs.existsSync(contentMp4)) {
-    throw new Error("Generated content.mp4 missing!")
+    throw new Error(`Generated ${CONFIG.DEFAULT_OUTPUT_FILENAME} missing!`)
   }
   const contentDuration = await getAudioDuration(contentMp4)
   console.log(
-    `✓ Concatenated content.mp4 generated successfully (Duration: ${contentDuration.toFixed(2)}s)!`
+    `✓ Concatenated ${CONFIG.DEFAULT_OUTPUT_FILENAME} generated successfully (Duration: ${contentDuration.toFixed(2)}s)!`
   )
 
-  // Expected total duration: 3.5 + 5.0 + 2.2 + 2 * 0.2 = 11.1s
-  const expectedTotalDuration = 3.5 + 5.0 + 2.2 + 2 * 0.2
+  const dur01 = await getAudioDuration(out01)
+  const dur02 = await getAudioDuration(out02)
+  const dur03 = await getAudioDuration(out03)
+  const dur04 = await getAudioDuration(out04)
+
+  // Expected total duration: sum of 4 clips + 3 gaps of 0.2s
+  const expectedTotalDuration = dur01 + dur02 + dur03 + dur04 + 3 * 0.2
   if (Math.abs(contentDuration - expectedTotalDuration) > 0.5) {
     throw new Error(
-      `Concatenated video duration mismatch: Expected ~${expectedTotalDuration}s, got ${contentDuration}s`
+      `Concatenated video duration mismatch: Expected ~${expectedTotalDuration.toFixed(2)}s, got ${contentDuration}s`
     )
   }
 
   // Test overwrite warning when running without -f / --force
   console.log("\n--- Test 3: Overwrite warning check ---")
-  const rebuildResult = await execa("pnpm", [
-    "start",
+  const rebuildResult = await execa("npx", [
+    "tsx",
+    "src/cli.ts",
     "build",
     "-i",
     validInputDir,
@@ -135,7 +172,7 @@ async function main() {
   await createTestImage(path.join(missingAudioDir, "99.png"), 1080, 1920)
 
   try {
-    await execa("pnpm", ["start", "validate", "-i", missingAudioDir])
+    await execa("npx", ["tsx", "src/cli.ts", "validate", "-i", missingAudioDir])
     throw new Error("Validation should have failed for missing audio!")
   } catch (err: any) {
     console.log("✓ Correctly failed validation for missing audio:")
@@ -151,7 +188,7 @@ async function main() {
   await createTestAudio(path.join(dupDir, "01.mp3"), 2.0)
 
   try {
-    await execa("pnpm", ["start", "validate", "-i", dupDir])
+    await execa("npx", ["tsx", "src/cli.ts", "validate", "-i", dupDir])
     throw new Error(
       "Validation should have failed for duplicate image basename!"
     )

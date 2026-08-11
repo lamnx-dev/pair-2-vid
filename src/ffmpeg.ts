@@ -1,6 +1,5 @@
 import { execa } from "execa"
 import fs from "fs"
-import { Ora } from "ora"
 import path from "path"
 import picocolors from "picocolors"
 import { CONFIG } from "./config.js"
@@ -31,7 +30,7 @@ async function getExecutablePath(
   return null
 }
 
-export async function checkFFmpegAvailability(spinner?: Ora): Promise<{
+export async function checkFFmpegAvailability(): Promise<{
   ffmpegPath: string
   ffprobePath: string
 }> {
@@ -43,16 +42,14 @@ export async function checkFFmpegAvailability(spinner?: Ora): Promise<{
   const ffprobe = await getExecutablePath("ffprobe")
 
   if (!ffmpeg || !ffprobe) {
-    const errorMsg =
-      "FFmpeg or FFprobe binaries from npm packages were not found"
-    if (spinner) {
-      spinner.fail(errorMsg)
-    } else {
-      console.error(picocolors.red(`\n${errorMsg}`))
-      console.error(
-        "\nPlease ensure @ffmpeg-installer/ffmpeg and @ffprobe-installer/ffprobe are properly installed.\n"
+    console.error(
+      picocolors.red(
+        "\nFFmpeg or FFprobe binaries from npm packages were not found"
       )
-    }
+    )
+    console.error(
+      "\nPlease ensure @ffmpeg-installer/ffmpeg and @ffprobe-installer/ffprobe are properly installed.\n"
+    )
     process.exit(1)
   }
 
@@ -122,7 +119,7 @@ export async function renderVideo(
   duration: number
 ): Promise<void> {
   const { ffmpegPath } = await checkFFmpegAvailability()
-  const fps = CONFIG.DEFAULT_FPS
+  const fps = 30
 
   // Ensure target directory exists
   const dir = path.dirname(outputPath)
@@ -289,9 +286,12 @@ export async function concatVideosWithGap(
   if (videoPaths.length === 0) return
 
   const { ffmpegPath } = await checkFFmpegAvailability()
-  const fps = CONFIG.DEFAULT_FPS
+  const fps = 30
   const gapDuration = CONFIG.DEFAULT_GAP_DURATION
-  const gapColor = CONFIG.DEFAULT_GAP_COLOR
+  const gapColor = "green"
+  const defaultWidth = 1080
+  const aspectWidth = 9
+  const aspectHeight = 16
 
   // Ensure target directory exists
   const dir = path.dirname(outputPath)
@@ -306,12 +306,12 @@ export async function concatVideosWithGap(
 
   // Standard width targetW (from first video or default 1080)
   const targetW =
-    Math.floor((allDims[0]?.width || CONFIG.DEFAULT_WIDTH) / 2) * 2
+    Math.floor((allDims[0]?.width || defaultWidth) / 2) * 2
 
   // Force strict aspect ratio canvas height (targetH = targetW * ASPECT_RATIO_HEIGHT / ASPECT_RATIO_WIDTH)
   const targetH =
     Math.floor(
-      (targetW * CONFIG.ASPECT_RATIO_HEIGHT) / CONFIG.ASPECT_RATIO_WIDTH / 2
+      (targetW * aspectHeight) / aspectWidth / 2
     ) * 2
 
   const filterParts: string[] = []

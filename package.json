@@ -1,7 +1,7 @@
 {
   "name": "pair-2-vid",
-  "version": "1.1.1",
-  "description": "Công cụ CLI chuyển đổi hàng loạt các cặp file ảnh và âm thanh thành video MP4",
+  "version": "1.2.0",
+  "description": "CLI tool that batches image+audio (or image+text TTS) pairs into MP4 videos",
   "main": "dist/cli.js",
   "type": "module",
   "bin": {
@@ -9,8 +9,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "tsx src/cli.ts",
-    "validate": "tsx src/cli.ts validate",
+    "dev": "tsc --watch",
     "test": "tsx tests/run-tests.ts",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
@@ -22,8 +21,10 @@
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "commander": "^13.1.0",
     "execa": "^9.6.0",
+    "onnxruntime-node": "^1.27.0",
     "ora": "^9.4.1",
-    "picocolors": "^1.1.1"
+    "picocolors": "^1.1.1",
+    "piper-phonemize": "^1.4.7"
   },
   "devDependencies": {
     "@types/node": "^22.13.1",
