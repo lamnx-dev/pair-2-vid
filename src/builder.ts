@@ -16,6 +16,7 @@ import { scanInputDirectory } from "./scanner.js"
 import { OnnxTTSEngine } from "./tts/onnx.js"
 import { BuildOptions, MediaPair, ScanResult, TTSItem } from "./types.js"
 import { createSpinner } from "./ui.js"
+import { getDefaultTTSModel } from "./userConfig.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pkgRootDir = path.resolve(__dirname, "..")
@@ -28,16 +29,18 @@ async function synthesizeTTSForItems({
   items,
   getWavPath,
   force,
+  model,
 }: {
   items: TTSItem[]
   getWavPath: (item: TTSItem) => string
   force?: boolean
+  model?: string
 }): Promise<{ synthesized: number; skipped: number }> {
   if (items.length === 0) return { synthesized: 0, skipped: 0 }
 
   const spinner = createSpinner("Initializing ONNX TTS Engine...")
 
-  const modelName = CONFIG.DEFAULT_TTS_MODEL
+  const modelName = model ?? getDefaultTTSModel()
   const modelPath = resolveModelAssetPath(`models/${modelName}.onnx`)
   const configPath = resolveModelAssetPath(`models/${modelName}.onnx.json`)
 
@@ -199,6 +202,7 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
           `${item.basename}.wav`
         )
       },
+      model: options.model,
     })
 
     // Step 4: Render single video segments
@@ -292,10 +296,12 @@ export async function ttsCommand({
   input,
   output,
   force,
+  model,
 }: {
   input: string
   output: string
   force?: boolean
+  model?: string
 }): Promise<void> {
   const inputDir = path.resolve(input)
   const outDir = path.resolve(output)
@@ -344,6 +350,7 @@ export async function ttsCommand({
       items: ttsItems,
       getWavPath,
       force,
+      model,
     })
   } catch (err: any) {
     if (spinner.isSpinning) {
@@ -352,5 +359,47 @@ export async function ttsCommand({
       console.error(picocolors.red(`✖ TTS synthesis failed: ${err.message}`))
     }
     process.exit(1)
+  }
+}
+
+export async function testTtsCommand({
+  input,
+  output,
+  force,
+}: {
+  input: string
+  output: string
+  force?: boolean
+}): Promise<void> {
+  const modelsDir = path.resolve(__dirname, "../models")
+  if (!fs.existsSync(modelsDir)) {
+    console.error(picocolors.red("No models directory found."))
+    process.exit(1)
+  }
+
+  const files = fs.readdirSync(modelsDir)
+  const modelNames = files
+    .filter((f) => f.endsWith(".onnx"))
+    .map((f) => path.basename(f, ".onnx"))
+    .sort()
+
+  if (modelNames.length === 0) {
+    console.error(
+      picocolors.yellow("No TTS models found in models/ directory.")
+    )
+    process.exit(1)
+  }
+
+  console.log(picocolors.bold(`Testing ${modelNames.length} TTS models...`))
+
+  for (const modelName of modelNames) {
+    const modelOutDir = path.join(output, modelName)
+    console.log(`\n--- Testing model: ${picocolors.cyan(modelName)} ---`)
+    await ttsCommand({
+      input,
+      output: modelOutDir,
+      force,
+      model: modelName,
+    })
   }
 }

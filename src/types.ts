@@ -33,6 +33,7 @@ export interface BuildOptions {
   output: string
   force?: boolean
   keep?: string
+  model?: string
 }
 
 export interface VerificationResult {
