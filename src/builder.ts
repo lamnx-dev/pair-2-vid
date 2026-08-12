@@ -61,7 +61,8 @@ async function synthesizeTTSForItems({
       skipped++
       continue
     }
-    spinner.text = `[${i + 1}/${items.length}] Synthesizing "${item.basename}"...`
+    const wavFilename = picocolors.cyan(path.basename(wavPath))
+    spinner.text = `Synthesizing segment ${i + 1}/${items.length} (${wavFilename})...`
     spinner.start()
     await ttsEngine.synthesizeFile(item.textPath, wavPath)
     item.audioPath = wavPath
@@ -229,7 +230,8 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
         continue
       }
 
-      renderSpinner.text = `Rendering segment ${i + 1}/${result.pairs.length} (${pair.basename})...`
+      const videoFilename = picocolors.cyan(path.basename(targetVideoPath))
+      renderSpinner.text = `Rendering segment ${i + 1}/${result.pairs.length} (${videoFilename})...`
 
       const duration = await getAudioDuration(pair.audioPath)
       await renderVideo(
@@ -267,8 +269,9 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     )
 
     // Step 5: Concatenate video clips into final output MP4
+    const outputNameStr = picocolors.cyan(outputFileName)
     const concatSpinner = createSpinner(
-      `Concatenating ${videoPathsForConcat.length} clips into ${outputFileName}...`
+      `Concatenating ${videoPathsForConcat.length} clips into ${outputNameStr}...`
     )
     currentSpinner = concatSpinner
     await concatVideosWithGap(videoPathsForConcat, finalOutputPath)

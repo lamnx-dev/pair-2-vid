@@ -1,5 +1,5 @@
-import * as ort from "onnxruntime-node"
 import fs from "fs"
+import * as ort from "onnxruntime-node"
 import path from "path"
 import { initialize, phonemizeToString } from "piper-phonemize"
 
@@ -36,10 +36,14 @@ export class OnnxTTSEngine {
 
   async init(): Promise<void> {
     if (!fs.existsSync(this.options.modelPath)) {
-      throw new Error(`ONNX model file not found at: "${this.options.modelPath}"`)
+      throw new Error(
+        `ONNX model file not found at: "${this.options.modelPath}"`
+      )
     }
     if (!fs.existsSync(this.options.configPath)) {
-      throw new Error(`ONNX config file not found at: "${this.options.configPath}"`)
+      throw new Error(
+        `ONNX config file not found at: "${this.options.configPath}"`
+      )
     }
 
     const configContent = fs.readFileSync(this.options.configPath, "utf-8")
@@ -67,7 +71,9 @@ export class OnnxTTSEngine {
 
     // Use piper-phonemize WASM for official espeak-ng Vietnamese IPA conversion
     const ipaResult = phonemizeToString(text, "vi")
-    const ipaString = Array.isArray(ipaResult) ? ipaResult.join(" ") : String(ipaResult)
+    const ipaString = Array.isArray(ipaResult)
+      ? ipaResult.join(" ")
+      : String(ipaResult)
 
     for (const char of ipaString) {
       if (idMap[char]) {
@@ -92,8 +98,10 @@ export class OnnxTTSEngine {
 
     const tokenIds = this.textToPhonemeIds(text)
 
-    const noiseScale = this.options.noiseScale ?? this.config?.inference?.noise_scale ?? 0.667
-    const lengthScale = this.options.lengthScale ?? this.config?.inference?.length_scale ?? 1.0
+    const noiseScale =
+      this.options.noiseScale ?? this.config?.inference?.noise_scale ?? 0.667
+    const lengthScale =
+      this.options.lengthScale ?? this.config?.inference?.length_scale ?? 1.0
     const noiseW = this.options.noiseW ?? this.config?.inference?.noise_w ?? 0.8
 
     const inputTensor = new ort.Tensor(
@@ -123,7 +131,7 @@ export class OnnxTTSEngine {
     const sampleRate = this.config?.audio?.sample_rate || 22050
 
     const wavBuffer = this.createWavBuffer(audioData, sampleRate)
-    
+
     // Ensure directory exists
     const dir = path.dirname(outputPath)
     if (!fs.existsSync(dir)) {
@@ -134,7 +142,10 @@ export class OnnxTTSEngine {
     return outputPath
   }
 
-  async synthesizeFile(textFilePath: string, outputPath: string): Promise<string> {
+  async synthesizeFile(
+    textFilePath: string,
+    outputPath: string
+  ): Promise<string> {
     const text = fs.readFileSync(textFilePath, "utf-8").trim()
     return this.synthesizeText(text, outputPath)
   }

@@ -5,7 +5,7 @@ export const CONFIG = {
   DEFAULT_OUTPUT_FILENAME: "output.mp4",
 
   // Gap / Transition Settings
-  DEFAULT_GAP_DURATION: 0.2,
+  DEFAULT_GAP_DURATION: 0.25,
   DEFAULT_GAP_COLOR: "green",
 
   // ONNX TTS Model Defaults
