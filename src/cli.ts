@@ -13,7 +13,7 @@ import {
   validateCommand,
 } from "./builder.js"
 import { CONFIG } from "./config.js"
-import { getDefaultTTSModel, setDefaultTTSModel } from "./userConfig.js"
+import { getDefaultTTSModel, setDefaultTTSModel } from "./user-config.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(
@@ -36,7 +36,7 @@ program
     CONFIG.DEFAULT_OUTPUT_DIR
   )
   .option("-f, --force", "force overwrite existing output files")
-  .option("-k, --keep [type]", "keep intermediate files: video, audio, or all")
+  .option("-k, --keep [type]", "keep intermediate files: video or audio")
   .option("-m, --model <name>", "TTS model name to use", getDefaultTTSModel())
   .action((options) =>
     buildCommand({

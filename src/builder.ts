@@ -5,6 +5,10 @@ import path from "path"
 import picocolors from "picocolors"
 import { fileURLToPath } from "url"
 import { CONFIG } from "./config.js"
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const pkgRootDir = path.resolve(__dirname, "..")
+
 import {
   checkFFmpegAvailability,
   concatVideosWithGap,
@@ -12,43 +16,31 @@ import {
   renderVideo,
   verifyVideo,
 } from "./ffmpeg.js"
-import { scanInputDirectory } from "./scanner.js"
-import { OnnxTTSEngine } from "./tts/onnx.js"
-import { BuildOptions, MediaPair, ScanResult, TTSItem } from "./types.js"
+import { OnnxTTSEngine } from "./onnx.js"
+import { getRandomMediaFile, scanInputDirectory } from "./scanner.js"
+import {
+  BuildOptions,
+  MediaPair,
+  ScanResult,
+  SynthesizeTTSOptions,
+  SynthesizeTTSResult,
+  TestTTSCommandOptions,
+  TTSCommandOptions,
+  TTSItem,
+} from "./types/index.js"
 import { createSpinner } from "./ui.js"
-import { getDefaultTTSModel } from "./userConfig.js"
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const pkgRootDir = path.resolve(__dirname, "..")
-
-function resolveModelAssetPath(relativePath: string): string {
-  return path.resolve(pkgRootDir, relativePath)
-}
 
 async function synthesizeTTSForItems({
   items,
   getWavPath,
   force,
   model,
-}: {
-  items: TTSItem[]
-  getWavPath: (item: TTSItem) => string
-  force?: boolean
-  model?: string
-}): Promise<{ synthesized: number; skipped: number }> {
+}: SynthesizeTTSOptions): Promise<SynthesizeTTSResult> {
   if (items.length === 0) return { synthesized: 0, skipped: 0 }
 
   const spinner = createSpinner("Initializing ONNX TTS Engine...")
 
-  const modelName = model ?? getDefaultTTSModel()
-  const modelPath = resolveModelAssetPath(`models/${modelName}.onnx`)
-  const configPath = resolveModelAssetPath(`models/${modelName}.onnx.json`)
-
-  const ttsEngine = new OnnxTTSEngine({
-    modelPath,
-    configPath,
-    lengthScale: 1.0 / CONFIG.DEFAULT_TTS_SPEED,
-  })
+  const ttsEngine = new OnnxTTSEngine(model)
   await ttsEngine.init()
 
   let synthesized = 0
@@ -155,6 +147,14 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   const relFinalPath =
     path.relative(process.cwd(), finalOutputPath) || finalOutputPath
 
+  if (fs.existsSync(finalOutputPath) && !options.force) {
+    const warnSpinner = createSpinner("Checking output file...")
+    warnSpinner.warn(
+      `${picocolors.cyan(relFinalPath)} already exists (use ${picocolors.yellow("-f")} or ${picocolors.yellow("--force")} to replace)`
+    )
+    return
+  }
+
   // Step 1: Check FFmpeg availability
   await checkFFmpegAvailability()
 
@@ -162,14 +162,6 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   const result = await validateScanResult(inputDir)
   if (!result) {
     process.exit(1)
-  }
-
-  if (fs.existsSync(finalOutputPath) && !options.force) {
-    const warnSpinner = createSpinner("Checking output file...")
-    warnSpinner.warn(
-      `${picocolors.cyan(relFinalPath)} already exists (use ${picocolors.yellow("-f")} or ${picocolors.yellow("--force")} to replace)`
-    )
-    return
   }
 
   if (!fs.existsSync(outputDir)) {
@@ -182,7 +174,6 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       : options.keep
         ? "all"
         : "none"
-
   const keepVideo = keepVal === "video" || keepVal === "all"
   const keepAudio = keepVal === "audio" || keepVal === "all"
 
@@ -193,8 +184,9 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   try {
     // Step 3: Synthesize TTS for pairs requiring it
     const ttsNeedPairs = result.pairs.filter((p): p is MediaPair & TTSItem =>
-      Boolean(p.textPath && !p.audioPath)
+      Boolean(p.textPath && (!p.audioPath || options.force))
     )
+
     await synthesizeTTSForItems({
       items: ttsNeedPairs,
       getWavPath: (item) => {
@@ -203,6 +195,7 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
           `${item.basename}.wav`
         )
       },
+      force: options.force,
       model: options.model,
     })
 
@@ -264,23 +257,78 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       renderParts.push(picocolors.green(`${renderedCount} rendered`))
     if (skippedCount > 0)
       renderParts.push(picocolors.yellow(`${skippedCount} skipped`))
+    const keepNote = keepVideo
+      ? ` (${picocolors.cyan("kept in output directory")})`
+      : ""
     renderSpinner.succeed(
-      `Video segments: ${renderParts.join(", ") || "0 segments"}`
+      `Video segments: ${renderParts.join(", ") || "0 segments"}${keepNote}`
     )
 
-    // Step 5: Concatenate video clips into final output MP4
+    // Step 5: Select random background assets (video & music) from package root directory
+    const bgVideoDir = path.resolve(pkgRootDir, CONFIG.DEFAULT_BG_VIDEO_DIR)
+    const bgMusicDir = path.resolve(pkgRootDir, CONFIG.DEFAULT_BG_MUSIC_DIR)
+
+    if (!fs.existsSync(bgVideoDir)) {
+      fs.mkdirSync(bgVideoDir, { recursive: true })
+    }
+    if (!fs.existsSync(bgMusicDir)) {
+      fs.mkdirSync(bgMusicDir, { recursive: true })
+    }
+
+    const randomBgVideo = getRandomMediaFile(
+      bgVideoDir,
+      CONFIG.SUPPORTED_VIDEO_EXTS
+    )
+    const randomBgMusic = getRandomMediaFile(
+      bgMusicDir,
+      CONFIG.SUPPORTED_AUDIO_EXTS
+    )
+
+    // Step 6: Concatenate video clips into final output MP4 with background compositing
     const outputNameStr = picocolors.cyan(outputFileName)
     const concatSpinner = createSpinner(
-      `Concatenating ${videoPathsForConcat.length} clips into ${outputNameStr}...`
+      `Compositing ${videoPathsForConcat.length} clips into ${outputNameStr}...`
     )
     currentSpinner = concatSpinner
-    await concatVideosWithGap(videoPathsForConcat, finalOutputPath)
+
+    if (randomBgVideo || randomBgMusic) {
+      const bgParts: string[] = []
+      if (randomBgVideo)
+        bgParts.push(`BG: ${picocolors.cyan(path.basename(randomBgVideo))}`)
+      if (randomBgMusic)
+        bgParts.push(
+          `Music: ${picocolors.magenta(path.basename(randomBgMusic))}`
+        )
+      concatSpinner.text = `Compositing clips onto ${bgParts.join(", ")}...`
+    }
+
+    await concatVideosWithGap(videoPathsForConcat, finalOutputPath, {
+      bgVideoPath: randomBgVideo,
+      bgMusicPath: randomBgMusic,
+    })
 
     const elapsedTime = (Date.now() - startTime) / 1000
     const timeStr = picocolors.dim(` in ${elapsedTime.toFixed(2)}s`)
     concatSpinner.succeed(
-      `Rendered final video to ${picocolors.cyan(relFinalPath)}${timeStr}`
+      `Final video: ${picocolors.cyan(relFinalPath)}${timeStr}`
     )
+
+    if (randomBgVideo && randomBgMusic) {
+      console.log(
+        `  ${picocolors.dim("├─")} BG Video: ${picocolors.cyan(path.basename(randomBgVideo))}`
+      )
+      console.log(
+        `  ${picocolors.dim("└─")} BG Music: ${picocolors.magenta(path.basename(randomBgMusic))}`
+      )
+    } else if (randomBgVideo) {
+      console.log(
+        `  ${picocolors.dim("└─")} BG Video: ${picocolors.cyan(path.basename(randomBgVideo))}`
+      )
+    } else if (randomBgMusic) {
+      console.log(
+        `  ${picocolors.dim("└─")} BG Music: ${picocolors.magenta(path.basename(randomBgMusic))}`
+      )
+    }
   } catch (err: any) {
     if (currentSpinner && currentSpinner.isSpinning) {
       currentSpinner.fail(`Failed to build video: ${err.message}`)
@@ -300,12 +348,7 @@ export async function ttsCommand({
   output,
   force,
   model,
-}: {
-  input: string
-  output: string
-  force?: boolean
-  model?: string
-}): Promise<void> {
+}: TTSCommandOptions): Promise<void> {
   const inputDir = path.resolve(input)
   const outDir = path.resolve(output)
 
@@ -369,11 +412,7 @@ export async function testTtsCommand({
   input,
   output,
   force,
-}: {
-  input: string
-  output: string
-  force?: boolean
-}): Promise<void> {
+}: TestTTSCommandOptions): Promise<void> {
   const modelsDir = path.resolve(__dirname, "../models")
   if (!fs.existsSync(modelsDir)) {
     console.error(picocolors.red("No models directory found."))

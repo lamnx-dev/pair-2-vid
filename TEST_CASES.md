@@ -19,20 +19,23 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ## 1. Tổng Quan Hướng Dẫn Kiểm Thử
 
 ### 🛠️ Điều kiện môi trường
+
 - NodeJS ≥ 18
 - `ffmpeg` đã được cài đặt và thêm vào PATH hệ thống
 - File mô hình TTS Piper ONNX đặt đúng tại `./models/ngochuyen5.onnx`
 - Đã link CLI bằng `pnpm link --global` hoặc chạy qua `node dist/cli.js` / `pnpm dev`
 
 ### 📊 Mẫu bảng kết quả
+
 | Mã TC | Tiêu đề | Loại | Trạng thái (Pass/Fail) | Ghi chú |
-| :--- | :--- | :--- | :--- | :--- |
+| :---- | :------ | :--- | :--------------------- | :------ |
 
 ---
 
 ## 2. Nhóm 1: Kiểm Thử Lệnh Build (`p2v` / `p2v build`)
 
 ### TC-BUILD-01: Build video với cấu hình mặc định (không truyền tham số)
+
 - **Mục tiêu:** Kiểm tra lệnh `p2v` chạy thành công khi có các cặp `image + audio` trong thư mục hiện tại.
 - **Điều kiện tiên quyết:** Thư mục hiện tại chứa `01.png` và `01.mp3`. Không có file `output.mp4` sẵn.
 - **Các bước thực hiện:**
@@ -47,6 +50,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-BUILD-02: Build với đường dẫn chỉ định (`-i` và `-o`)
+
 - **Mục tiêu:** Kiểm tra tham số `-i` (input directory) và `-o` (output directory).
 - **Điều kiện tiên quyết:** Thư mục `./test-in` chứa `a.jpg`, `a.wav` và thư mục `./test-out` chưa có `output.mp4`.
 - **Các bước thực hiện:**
@@ -58,6 +62,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-BUILD-03: Ghi đè file output đã tồn tại với cờ `-f` / `--force`
+
 - **Mục tiêu:** Kiểm tra xử lý ghi đè file khi file `output.mp4` đã tồn tại.
 - **Điều kiện tiên quyết:** Thư mục output đã có sẵn file `output.mp4`.
 - **Các bước thực hiện:**
@@ -70,6 +75,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-BUILD-04: Build nhiều phân đoạn và kiểm tra thứ tự ghép
+
 - **Mục tiêu:** Đảm bảo các phân đoạn video được sắp xếp đúng thứ tự alphabet theo basename.
 - **Điều kiện tiên quyết:** Thư mục input chứa `01.png`, `01.mp3`, `02.png`, `02.mp3`, `03.png`, `03.mp3`.
 - **Các bước thực hiện:**
@@ -84,6 +90,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ## 3. Nhóm 2: Kiểm Thử Giữ File Trung Gian (`-k` / `--keep`)
 
 ### TC-KEEP-01: Giữ lại video phân đoạn (`-k video`)
+
 - **Mục tiêu:** Kiểm tra tùy chọn `-k video` để tạo và lưu các file video đơn lẻ.
 - **Điều kiện tiên quyết:** Input chứa `01.png`+`01.mp3`, `02.jpg`+`02.wav`.
 - **Các bước thực hiện:**
@@ -98,6 +105,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-KEEP-02: Giữ lại audio TTS (`-k audio`)
+
 - **Mục tiêu:** Kiểm tra tùy chọn `-k audio` khi build project có sử dụng TTS từ file `.txt`.
 - **Điều kiện tiên quyết:** Input chứa `01.png` và `01.txt`.
 - **Các bước thực hiện:**
@@ -111,6 +119,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-KEEP-03: Giữ tất cả file trung gian (`-k all`)
+
 - **Mục tiêu:** Kiểm tra tùy chọn `-k all`.
 - **Điều kiện tiên quyết:** Input chứa `01.png`+`01.mp3`, `02.png`+`02.txt`.
 - **Các bước thực hiện:**
@@ -123,6 +132,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ## 4. Nhóm 3: Kiểm Thử Tổng Hợp TTS Từ Text (`p2v tts` & Build từ `.txt`)
 
 ### TC-TTS-01: Lệnh tổng hợp TTS độc lập (`p2v tts`)
+
 - **Mục tiêu:** Kiểm tra lệnh `p2v tts` để sinh file `.wav` từ các file `.txt`.
 - **Điều kiện tiên quyết:** Input chứa `intro.txt` (nội dung tiếng Việt: "Xin chào các bạn") và `outro.txt`.
 - **Các bước thực hiện:**
@@ -135,6 +145,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-TTS-02: Tự động tổng hợp TTS khi build video (`image + txt`)
+
 - **Mục tiêu:** Kiểm tra pipeline tự động chuyển đổi `.txt` thành giọng nói rồi ghép video khi không có file audio.
 - **Điều kiện tiên quyết:** Input chứa `scene1.png` và `scene1.txt`. Không có `scene1.mp3`/`wav`.
 - **Các bước thực hiện:**
@@ -147,6 +158,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-TTS-03: Ưu tiên file audio sẵn có hơn file `.txt`
+
 - **Mục tiêu:** Kiểm tra trường hợp một basename có cả 3 file: `.png`, `.mp3` và `.txt`.
 - **Điều kiện tiên quyết:** Input chứa `01.png`, `01.mp3` (nhạc), và `01.txt` (văn bản).
 - **Các bước thực hiện:**
@@ -160,6 +172,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ## 5. Nhóm 4: Kiểm Thử Lệnh Validate (`p2v validate`)
 
 ### TC-VAL-01: Validate thư mục chứa dữ liệu hợp lệ
+
 - **Mục tiêu:** Kiểm tra lệnh `p2v validate` khi tất cả file đều tạo cặp hợp lệ.
 - **Điều kiện tiên quyết:** Input chứa `01.png`+`01.mp3`, `02.webp`+`02.txt`.
 - **Các bước thực hiện:**
@@ -171,6 +184,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-VAL-02: Validate thư mục có file lẻ (thiếu ảnh hoặc thiếu audio/txt)
+
 - **Mục tiêu:** Kiểm tra thông báo lỗi validation khi dữ liệu không bắt cặp được.
 - **Điều kiện tiên quyết:** Input chứa `01.png` (thiếu audio/txt), `02.mp3` (thiếu ảnh).
 - **Các bước thực hiện:**
@@ -184,6 +198,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-VAL-03: Validate khi phát hiện trùng tên file (trùng basename cùng loại)
+
 - **Mục tiêu:** Kiểm tra phát hiện xung đột khi có nhiều file cùng basename và cùng thuộc nhóm ảnh/âm thanh.
 - **Điều kiện tiên quyết:** Input chứa `01.png`, `01.jpg` (trùng basename nhóm ảnh), và `01.mp3`.
 - **Các bước thực hiện:**
@@ -197,6 +212,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ## 6. Nhóm 5: Kiểm Thử Các Định Dạng Media & Khung Hình Video
 
 ### TC-FMT-01: Kiểm tra các định dạng ảnh được hỗ trợ
+
 - **Mục tiêu:** Đảm bảo công cụ xử lý tốt tất cả định dạng ảnh mở rộng (`.png`, `.jpg`, `.jpeg`, `.webp`).
 - **Điều kiện tiên quyết:** Input chứa:
   - `01.png` + `01.mp3`
@@ -211,6 +227,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-FMT-02: Kiểm tra các định dạng âm thanh được hỗ trợ
+
 - **Mục tiêu:** Đảm bảo công cụ xử lý tốt tất cả định dạng audio (`.mp3`, `.wav`, `.m4a`, `.aac`).
 - **Điều kiện tiên quyết:** Input chứa 4 phân đoạn tương ứng với 4 đuôi file audio trên.
 - **Các bước thực hiện:**
@@ -221,6 +238,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-FMT-03: Kiểm tra tỉ lệ khung hình (9:16 Portrait) & Fullwidth scaling
+
 - **Mục tiêu:** Đảm bảo video đầu ra có tỉ lệ chuẩn 9:16 (ví dụ 1080x1920) và hình ảnh hiển thị 100% chiều rộng khung hình.
 - **Điều kiện tiên quyết:** Input chứa ảnh có độ phân giải ngang/vuông (ví dụ `1920x1080` hoặc `800x800`).
 - **Các bước thực hiện:**
@@ -233,6 +251,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-FMT-04: Kiểm tra phông xanh chuyển cảnh giữa các phân đoạn (Chroma Key Green Frame)
+
 - **Mục tiêu:** Đảm bảo phông màu xanh lá (`green`) xuất hiện 0.2 giây ở giữa các phân đoạn.
 - **Điều kiện tiên quyết:** Input có từ 2 phân đoạn trở lên (`01`, `02`).
 - **Các bước thực hiện:**
@@ -246,18 +265,21 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ## 7. Nhóm 6: Kiểm Thử Xử Lý Lỗi & Trường Hợp Biên (Edge Cases)
 
 ### TC-EDGE-01: Thư mục input không tồn tại
+
 - **Các bước thực hiện:** Chạy `p2v -i ./folder-khong-ton-tai`.
 - **Kết quả mong đợi:** CLI thông báo lỗi `Input directory does not exist` và dừng chương trình êm đẹp.
 
 ---
 
 ### TC-EDGE-02: Thư mục input rỗng
+
 - **Các bước thực hiện:** Chạy `p2v -i ./empty-dir`.
 - **Kết quả mong đợi:** CLI thông báo không tìm thấy cặp file media nào hợp lệ để xử lý.
 
 ---
 
 ### TC-EDGE-03: File văn bản `.txt` chứa kí tự đặc biệt / Tiếng Việt có dấu phức tạp
+
 - **Điều kiện tiên quyết:** `01.txt` chứa đoạn văn tiếng Việt dài có dấu, xuống dòng, dấu câu (`!`, `?`, `"`, `...`).
 - **Các bước thực hiện:** Chạy `p2v tts -i ./input -o ./output -f`.
 - **Kết quả mong đợi:** Mô hình Piper tổng hợp mượt mà, đọc đúng ngữ điệu, không bị crash do lỗi mã hóa UTF-8.
@@ -265,6 +287,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-EDGE-04: Tên file chứa khoảng trắng và ký tự đặc biệt
+
 - **Điều kiện tiên quyết:** Input chứa `bai hat 01 (ban goc).png` và `bai hat 01 (ban goc).mp3`.
 - **Các bước thực hiện:** Chạy `p2v -i ./input -o ./output -f`.
 - **Kết quả mong đợi:** CLI escape đường dẫn chính xác khi truyền sang FFmpeg, build video thành công.
@@ -272,6 +295,7 @@ Tài liệu này chứa danh sách toàn bộ các test case thủ công (Manual
 ---
 
 ### TC-EDGE-05: Hỗ trợ thư mục hỗn hợp (Mixed Batch: Cả Video + Audio & Video + Text)
+
 - **Điều kiện tiên quyết:** Thư mục input chứa:
   - `01.png` + `01.mp3` (Audio sẵn)
   - `02.jpg` + `02.txt` (Cần chạy TTS)

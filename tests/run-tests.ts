@@ -1,9 +1,12 @@
 import { execa } from "execa"
 import fs from "fs"
 import path from "path"
+import { fileURLToPath } from "url"
 import { CONFIG } from "../src/config.js"
 import { checkFFmpegAvailability, getAudioDuration } from "../src/ffmpeg.js"
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const pkgRootDir = path.resolve(__dirname, "..")
 const TEST_DIR = path.resolve("./test_temp")
 
 async function createTestImage(
@@ -27,12 +30,38 @@ async function createTestImage(
 
 async function createTestAudio(filePath: string, durationSeconds: number) {
   const { ffmpegPath } = await checkFFmpegAvailability()
+  const dir = path.dirname(filePath)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   await execa(ffmpegPath, [
     "-y",
     "-f",
     "lavfi",
     "-i",
     `sine=frequency=440:duration=${durationSeconds}`,
+    filePath,
+  ])
+}
+
+async function createTestVideoBg(
+  filePath: string,
+  durationSeconds: number,
+  width = 1080,
+  height = 1920,
+  color = "red"
+) {
+  const { ffmpegPath } = await checkFFmpegAvailability()
+  const dir = path.dirname(filePath)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  await execa(ffmpegPath, [
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    `color=c=${color}:s=${width}x${height}:d=${durationSeconds}`,
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
     filePath,
   ])
 }
@@ -144,12 +173,62 @@ async function main() {
   const dur03 = await getAudioDuration(out03)
   const dur04 = await getAudioDuration(out04)
 
-  // Expected total duration: sum of 4 clips + 3 gaps of 0.2s
-  const expectedTotalDuration = dur01 + dur02 + dur03 + dur04 + 3 * 0.2
+  // Expected total duration: sum of 4 clips + 3 internal gaps (0.3s each) + head gap (0.3s) + tail gap (0.3s)
+  const expectedTotalDuration =
+    dur01 + dur02 + dur03 + dur04 + 5 * CONFIG.DEFAULT_GAP_DURATION
   if (Math.abs(contentDuration - expectedTotalDuration) > 0.5) {
     throw new Error(
       `Concatenated video duration mismatch: Expected ~${expectedTotalDuration.toFixed(2)}s, got ${contentDuration}s`
     )
+  }
+
+  console.log(
+    "\n--- Test 2b: Build Videos with Video BG & BG Music Repositories ---"
+  )
+  const defaultBgVideoDir = path.resolve(pkgRootDir, "assets/bg_videos")
+  const defaultBgMusicDir = path.resolve(pkgRootDir, "assets/bg_music")
+
+  const repoOutputDir = path.join(TEST_DIR, "output_repos")
+
+  await createTestVideoBg(
+    path.join(defaultBgVideoDir, "sample_bg.mp4"),
+    4.0,
+    1080,
+    1920,
+    "teal"
+  )
+  await createTestAudio(path.join(defaultBgMusicDir, "sample_music.mp3"), 6.0)
+
+  const repoBuildResult = await execa("npx", [
+    "tsx",
+    "src/cli.ts",
+    "build",
+    "-i",
+    validInputDir,
+    "-o",
+    repoOutputDir,
+    "-f",
+  ])
+
+  console.log(repoBuildResult.stdout)
+
+  const repoFinalMp4 = path.join(repoOutputDir, CONFIG.DEFAULT_OUTPUT_FILENAME)
+  if (!fs.existsSync(repoFinalMp4)) {
+    throw new Error(
+      `Generated output.mp4 missing for Video BG + BG Music test!`
+    )
+  }
+  const repoFinalDuration = await getAudioDuration(repoFinalMp4)
+  console.log(
+    `✓ Video BG + BG Music output.mp4 generated successfully (Duration: ${repoFinalDuration.toFixed(2)}s)!`
+  )
+
+  // Clean up created sample files in assets/
+  if (fs.existsSync(path.join(defaultBgVideoDir, "sample_bg.mp4"))) {
+    fs.rmSync(path.join(defaultBgVideoDir, "sample_bg.mp4"))
+  }
+  if (fs.existsSync(path.join(defaultBgMusicDir, "sample_music.mp3"))) {
+    fs.rmSync(path.join(defaultBgMusicDir, "sample_music.mp3"))
   }
 
   // Test overwrite warning when running without -f / --force

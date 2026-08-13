@@ -1,52 +1,38 @@
 import fs from "fs"
 import * as ort from "onnxruntime-node"
 import path from "path"
+import { fileURLToPath } from "url"
 import { initialize, phonemizeToString } from "piper-phonemize"
+import { CONFIG } from "./config.js"
+import { OnnxTTSConfig } from "./types/index.js"
+import { getDefaultTTSModel } from "./user-config.js"
 
-export interface OnnxTTSConfig {
-  audio?: {
-    sample_rate?: number
-  }
-  inference?: {
-    noise_scale?: number
-    length_scale?: number
-    noise_w?: number
-  }
-  phoneme_id_map?: Record<string, number[]>
-}
-
-export interface OnnxEngineOptions {
-  modelPath: string
-  configPath: string
-  lengthScale?: number
-  noiseScale?: number
-  noiseW?: number
-}
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const pkgRootDir = path.resolve(__dirname, "..")
 
 let isPiperPhonemizeInitialized = false
 
 export class OnnxTTSEngine {
   private session: ort.InferenceSession | null = null
   private config: OnnxTTSConfig | null = null
-  private options: OnnxEngineOptions
+  private modelPath: string
+  private configPath: string
 
-  constructor(options: OnnxEngineOptions) {
-    this.options = options
+  constructor(modelName?: string) {
+    const name = modelName ?? getDefaultTTSModel()
+    this.modelPath = path.resolve(pkgRootDir, `models/${name}.onnx`)
+    this.configPath = path.resolve(pkgRootDir, `models/${name}.onnx.json`)
   }
 
   async init(): Promise<void> {
-    if (!fs.existsSync(this.options.modelPath)) {
-      throw new Error(
-        `ONNX model file not found at: "${this.options.modelPath}"`
-      )
+    if (!fs.existsSync(this.modelPath)) {
+      throw new Error(`ONNX model file not found at: "${this.modelPath}"`)
     }
-    if (!fs.existsSync(this.options.configPath)) {
-      throw new Error(
-        `ONNX config file not found at: "${this.options.configPath}"`
-      )
+    if (!fs.existsSync(this.configPath)) {
+      throw new Error(`ONNX config file not found at: "${this.configPath}"`)
     }
 
-    const configContent = fs.readFileSync(this.options.configPath, "utf-8")
+    const configContent = fs.readFileSync(this.configPath, "utf-8")
     this.config = JSON.parse(configContent)
 
     if (!isPiperPhonemizeInitialized) {
@@ -54,15 +40,18 @@ export class OnnxTTSEngine {
       isPiperPhonemizeInitialized = true
     }
 
-    this.session = await ort.InferenceSession.create(this.options.modelPath)
+    this.session = await ort.InferenceSession.create(this.modelPath)
   }
 
   public textToPhonemeIds(text: string): number[] {
-    if (!this.config || !this.config.phoneme_id_map) {
-      throw new Error("ONNX config has no phoneme_id_map")
+    if (!this.config) {
+      throw new Error(
+        "ONNX engine has not been initialized. Call init() first."
+      )
     }
 
     const idMap = this.config.phoneme_id_map
+
     const bos = idMap["^"] ? idMap["^"][0] : 1
     const eos = idMap["$"] ? idMap["$"][0] : 2
     const pad = idMap["_"] ? idMap["_"][0] : 0
@@ -96,13 +85,12 @@ export class OnnxTTSEngine {
       await this.init()
     }
 
+    const config = this.config!
     const tokenIds = this.textToPhonemeIds(text)
 
-    const noiseScale =
-      this.options.noiseScale ?? this.config?.inference?.noise_scale ?? 0.667
-    const lengthScale =
-      this.options.lengthScale ?? this.config?.inference?.length_scale ?? 1.0
-    const noiseW = this.options.noiseW ?? this.config?.inference?.noise_w ?? 0.8
+    const noiseScale = config.inference.noise_scale
+    const lengthScale = config.inference.length_scale / CONFIG.DEFAULT_TTS_SPEED
+    const noiseW = config.inference.noise_w
 
     const inputTensor = new ort.Tensor(
       "int64",
@@ -128,7 +116,7 @@ export class OnnxTTSEngine {
 
     const outputs = await this.session!.run(feeds)
     const audioData = outputs.output.data as Float32Array
-    const sampleRate = this.config?.audio?.sample_rate || 22050
+    const sampleRate = config.audio.sample_rate
 
     const wavBuffer = this.createWavBuffer(audioData, sampleRate)
 

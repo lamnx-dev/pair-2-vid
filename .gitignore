@@ -1,2 +1,4 @@
 node_modules/
 dist/
+assets/bg_videos/*
+assets/bg_music/*

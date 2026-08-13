@@ -3,7 +3,7 @@ import fs from "fs"
 import path from "path"
 import picocolors from "picocolors"
 import { CONFIG } from "./config.js"
-import { VerificationResult } from "./types.js"
+import { ConcatOptions, VerificationResult } from "./types/index.js"
 
 let resolvedFfmpegPath: string | null = null
 let resolvedFfprobePath: string | null = null
@@ -279,19 +279,66 @@ export async function getVideoDimensions(
   return { width, height }
 }
 
+export async function getVideoDuration(videoPath: string): Promise<number> {
+  const { ffprobePath } = await checkFFmpegAvailability()
+
+  const { stdout } = await execa(ffprobePath, [
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration",
+    "-of",
+    "default=noprint_wrappers=1:nokey=1",
+    videoPath,
+  ])
+
+  const duration = parseFloat(stdout.trim())
+  if (isNaN(duration) || duration <= 0) {
+    throw new Error(
+      `Invalid video duration extracted for "${videoPath}": ${stdout}`
+    )
+  }
+  return duration
+}
+
+function calculateRandomStartOffset(
+  assetDuration: number,
+  targetDuration: number,
+  minOffset: number = CONFIG.MIN_BG_START_OFFSET
+): number {
+  if (assetDuration <= minOffset) {
+    return 0
+  }
+  const maxPossibleOffset =
+    assetDuration > targetDuration
+      ? assetDuration - targetDuration
+      : assetDuration - 1
+  const upperLimit = Math.max(minOffset, maxPossibleOffset)
+  if (upperLimit <= minOffset) {
+    return minOffset
+  }
+  return minOffset + Math.random() * (upperLimit - minOffset)
+}
+
 export async function concatVideosWithGap(
   videoPaths: string[],
-  outputPath: string
+  outputPath: string,
+  options: ConcatOptions = {}
 ): Promise<void> {
   if (videoPaths.length === 0) return
 
   const { ffmpegPath } = await checkFFmpegAvailability()
-  const fps = 30
+
   const gapDuration = CONFIG.DEFAULT_GAP_DURATION
-  const gapColor = "green"
-  const defaultWidth = 1080
-  const aspectWidth = 9
-  const aspectHeight = 16
+  const bgMusicVol = CONFIG.DEFAULT_BG_MUSIC_VOLUME
+  const fgScaleRatio = CONFIG.DEFAULT_FG_SCALE
+
+  const fps = 30
+  const targetW = 1080
+  const targetH = 1920
+
+  const fgW = Math.floor((targetW * fgScaleRatio) / 2) * 2
+  const fgH = Math.floor((targetH * fgScaleRatio) / 2) * 2
 
   // Ensure target directory exists
   const dir = path.dirname(outputPath)
@@ -299,55 +346,114 @@ export async function concatVideosWithGap(
     fs.mkdirSync(dir, { recursive: true })
   }
 
-  // Fetch dimensions for all input videos
-  const allDims = await Promise.all(
-    videoPaths.map((vPath) => getVideoDimensions(vPath))
+  // Calculate durations for each video clip
+  const clipDurations = await Promise.all(
+    videoPaths.map((vPath) => getVideoDuration(vPath))
   )
-
-  // Standard width targetW (from first video or default 1080)
-  const targetW =
-    Math.floor((allDims[0]?.width || defaultWidth) / 2) * 2
-
-  // Force strict aspect ratio canvas height (targetH = targetW * ASPECT_RATIO_HEIGHT / ASPECT_RATIO_WIDTH)
-  const targetH =
-    Math.floor(
-      (targetW * aspectHeight) / aspectWidth / 2
-    ) * 2
-
-  const filterParts: string[] = []
-  const concatInputs: string[] = []
+  const totalClipsDuration = clipDurations.reduce((sum, d) => sum + d, 0)
+  const totalInternalGaps = Math.max(0, videoPaths.length - 1) * gapDuration
+  const bodyDuration = totalClipsDuration + totalInternalGaps
+  const totalFinalDuration = gapDuration + bodyDuration + gapDuration
 
   const ffmpegArgs: string[] = ["-y"]
+
+  // Add foreground clips
   for (const vPath of videoPaths) {
     ffmpegArgs.push("-i", vPath)
   }
 
-  for (let i = 0; i < videoPaths.length; i++) {
-    // Scale width to targetW (fullwidth), pad top/bottom with green screen (gapColor) for aspect frame
-    filterParts.push(
-      `[${i}:v]scale=${targetW}:-2,pad=${targetW}:'max(ih,${targetH})':0:'(oh-ih)/2':color=${gapColor},crop=${targetW}:${targetH},setsar=1,format=yuv420p[v${i}]`
-    )
-    filterParts.push(
-      `[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a${i}]`
-    )
+  let nextInputIdx = videoPaths.length
+  let bgvIdx: number | null = null
+  let bgmIdx: number | null = null
 
-    concatInputs.push(`[v${i}][a${i}]`)
+  if (options.bgVideoPath && fs.existsSync(options.bgVideoPath)) {
+    let offset = 0
+    try {
+      const bgvDuration = await getVideoDuration(options.bgVideoPath)
+      offset = calculateRandomStartOffset(bgvDuration, totalFinalDuration)
+    } catch {
+      offset = 0
+    }
+    if (offset > 0) {
+      ffmpegArgs.push("-ss", offset.toFixed(3))
+    }
+    ffmpegArgs.push("-stream_loop", "-1", "-i", options.bgVideoPath)
+    bgvIdx = nextInputIdx++
+  }
+
+  if (options.bgMusicPath && fs.existsSync(options.bgMusicPath)) {
+    ffmpegArgs.push("-stream_loop", "-1", "-i", options.bgMusicPath)
+    bgmIdx = nextInputIdx++
+  }
+
+  const filterParts: string[] = []
+  const concatInputs: string[] = []
+
+  for (let i = 0; i < videoPaths.length; i++) {
+    filterParts.push(
+      `[${i}:v]scale=${fgW}:${fgH}:force_original_aspect_ratio=decrease,pad=${fgW}:${fgH}:'(ow-iw)/2':'(oh-ih)/2':color=black@0,setsar=1,format=yuva420p[fgv${i}]`
+    )
+    filterParts.push(
+      `[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[fga${i}]`
+    )
+    concatInputs.push(`[fgv${i}][fga${i}]`)
 
     if (i < videoPaths.length - 1 && gapDuration > 0) {
       filterParts.push(
-        `color=c=${gapColor}:s=${targetW}x${targetH}:r=${fps}:d=${gapDuration.toFixed(6)},format=yuv420p,setsar=1[gapv${i}]`
+        `color=c=black@0:s=${fgW}x${fgH}:r=${fps}:d=${gapDuration.toFixed(6)},format=yuva420p,setsar=1[fggapv${i}]`
       )
       filterParts.push(
-        `anullsrc=r=44100:cl=stereo,atrim=duration=${gapDuration.toFixed(6)}[gapa${i}]`
+        `anullsrc=r=44100:cl=stereo,atrim=duration=${gapDuration.toFixed(6)}[fggapa${i}]`
       )
-      concatInputs.push(`[gapv${i}][gapa${i}]`)
+      concatInputs.push(`[fggapv${i}][fggapa${i}]`)
     }
   }
 
   const segmentCount = concatInputs.length
   filterParts.push(
-    `${concatInputs.join("")}concat=n=${segmentCount}:v=1:a=1[outv][outa]`
+    `${concatInputs.join("")}concat=n=${segmentCount}:v=1:a=1[fgv_raw][fga_raw]`
   )
+
+  const headGapMs = Math.round(gapDuration * 1000)
+  if (headGapMs > 0) {
+    filterParts.push(
+      `[fga_raw]adelay=delays=${headGapMs}|${headGapMs}[fga_delayed]`
+    )
+  } else {
+    filterParts.push(`[fga_raw]anull[fga_delayed]`)
+  }
+
+  if (bgvIdx !== null) {
+    filterParts.push(
+      `[${bgvIdx}:v]scale=${targetW}:${targetH}:force_original_aspect_ratio=increase,crop=${targetW}:${targetH},setsar=1,format=yuv420p[bgv_base]`
+    )
+  } else {
+    filterParts.push(
+      `color=c=green:s=${targetW}x${targetH}:r=${fps},format=yuv420p,setsar=1[bgv_base]`
+    )
+  }
+
+  filterParts.push(
+    `[bgv_base][fgv_raw]overlay=x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2:enable='gte(t,${gapDuration.toFixed(6)})':shortest=0[outv_raw]`
+  )
+  filterParts.push(
+    `[outv_raw]trim=duration=${totalFinalDuration.toFixed(6)},setpts=PTS-STARTPTS[outv]`
+  )
+
+  filterParts.push(
+    `[fga_delayed]apad,atrim=duration=${totalFinalDuration.toFixed(6)},asetpts=PTS-STARTPTS[speech_a]`
+  )
+
+  if (bgmIdx !== null) {
+    filterParts.push(
+      `[${bgmIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=${bgMusicVol},atrim=duration=${totalFinalDuration.toFixed(6)},asetpts=PTS-STARTPTS[bgm_a]`
+    )
+    filterParts.push(
+      `[speech_a][bgm_a]amix=inputs=2:duration=first:dropout_transition=0:weights='1 1',atrim=duration=${totalFinalDuration.toFixed(6)}[outa]`
+    )
+  } else {
+    filterParts.push(`[speech_a]anull[outa]`)
+  }
 
   const filterComplex = filterParts.join(";")
 
@@ -368,6 +474,8 @@ export async function concatVideosWithGap(
     "yuv420p",
     "-r",
     fps.toString(),
+    "-t",
+    totalFinalDuration.toFixed(6),
     outputPath
   )
 

@@ -2,7 +2,7 @@ import fs from "fs"
 import path from "path"
 import { CONFIG } from "./config.js"
 import { getImageDimensions } from "./ffmpeg.js"
-import { ImageDimensionInfo, MediaPair, ScanResult } from "./types.js"
+import { ImageDimensionInfo, MediaPair, ScanResult } from "./types/index.js"
 
 const SUPPORTED_IMAGE_EXTS = new Set<string>(CONFIG.SUPPORTED_IMAGE_EXTS)
 const SUPPORTED_AUDIO_EXTS = new Set<string>(CONFIG.SUPPORTED_AUDIO_EXTS)
@@ -86,7 +86,11 @@ export async function scanInputDirectory(
           missingImages.push(txtFile)
         }
       }
-    } else if (audList.length === 0 && txtList.length === 0 && imgList.length > 0) {
+    } else if (
+      audList.length === 0 &&
+      txtList.length === 0 &&
+      imgList.length > 0
+    ) {
       for (const imgFile of imgList) {
         missingAudios.push(imgFile)
       }
@@ -138,4 +142,23 @@ export async function scanInputDirectory(
     duplicateAudios,
     imageDimensions: dimensionInfos,
   }
+}
+
+export function getRandomMediaFile(
+  dirPath: string,
+  supportedExts: readonly string[]
+): string | null {
+  if (!fs.existsSync(dirPath)) return null
+
+  const extsSet = new Set(supportedExts.map((e) => e.toLowerCase()))
+  const files = fs.readdirSync(dirPath).filter((f) => {
+    const fullPath = path.join(dirPath, f)
+    if (!fs.statSync(fullPath).isFile()) return false
+    return extsSet.has(path.extname(f).toLowerCase())
+  })
+
+  if (files.length === 0) return null
+
+  const randomIndex = Math.floor(Math.random() * files.length)
+  return path.join(dirPath, files[randomIndex])
 }

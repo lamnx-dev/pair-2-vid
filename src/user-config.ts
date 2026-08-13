@@ -1,14 +1,11 @@
-﻿import fs from "fs"
+import fs from "fs"
 import os from "os"
 import path from "path"
 import { CONFIG } from "./config.js"
+import { UserConfig } from "./types/index.js"
 
 const CONFIG_DIR = path.join(os.homedir(), ".p2v")
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json")
-
-export interface UserConfig {
-  defaultTTSModel?: string
-}
 
 export function readUserConfig(): UserConfig {
   try {
