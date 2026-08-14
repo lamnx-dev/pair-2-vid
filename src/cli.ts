@@ -36,7 +36,10 @@ program
     CONFIG.DEFAULT_OUTPUT_DIR
   )
   .option("-f, --force", "force overwrite existing output files")
-  .option("-k, --keep [type]", "keep intermediate files: video or audio")
+  .option(
+    "-k, --keep [type]",
+    "keep intermediate files: video, audio, or thumb"
+  )
   .option("-m, --model <name>", "TTS model name to use", getDefaultTTSModel())
   .action((options) =>
     buildCommand({

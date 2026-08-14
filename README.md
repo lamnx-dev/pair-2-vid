@@ -8,6 +8,11 @@ A CLI tool that automatically pairs images with audio (or images with TTS text f
 
 - **Smart pairing:** Automatically matches images and audio/text by **basename** (e.g. `01.png` + `01.mp3`, or `02.webp` + `02.txt`).
 - **TTS from text files:** If an image is paired with a `.txt` file (and no audio file), the tool synthesizes speech automatically using a local Piper ONNX model (default: `ngochuyen5` — Vietnamese) and merges it into the video segment.
+- **Thumbnail / Title Intro Overlay:**
+  - Automatically detects `t.txt` (or `_t.txt`) in the input folder to generate a floral frame thumbnail intro at the beginning of the video (`DEFAULT_THUMB_DURATION = 0.3s`).
+  - Text is automatically wrapped (2-3 words per line), centered, and rendered using custom font `Quicksand-Bold.ttf`.
+  - Background video is gently blurred (`boxblur`, radius 15) during thumbnail intro for premium aesthetic presentation.
+  - Export thumbnail image directly with `-k thumb` to create `thumbnail.jpg` (first frame of the video).
 - **Background Video & Music Compositing:**
   - Automatically picks random background video (from `assets/bg_videos`) and background music (from `assets/bg_music`).
   - Standard **9:16 Portrait** output (`1080x1920`).
@@ -15,11 +20,11 @@ A CLI tool that automatically pairs images with audio (or images with TTS text f
   - Background music is scaled in volume (default `0.4`) and mixed with primary segment audio.
 - **Inter-segment transitions / gaps:**
   - Inserts customizable gaps (default `0.3` seconds) between media pairs.
-- **Intermediate file retention (`-k` / `--keep`):** Keep segment videos and audio (`-k`), segment videos only (`-k video`), or synthesized TTS audio only (`-k audio`).
+- **Intermediate file retention (`-k` / `--keep`):** Keep all intermediate files (`-k`), segment videos (`-k video`), synthesized TTS audio (`-k audio`), or export thumbnail image (`-k thumb`).
 - **Supported formats:**
   - Images: `.png`, `.jpg`, `.jpeg`, `.webp`
   - Audio: `.mp3`, `.wav`, `.m4a`, `.aac`
-  - Text (TTS): `.txt`
+  - Text (TTS & Title): `.txt` (e.g. `t.txt` for title intro)
   - Video (for background): `.mp4`, `.mov`, `.mkv`, `.webm`
 - **Standard encoding:** H.264 + AAC (`yuv420p`), fully compatible with CapCut, Premiere, DaVinci, TikTok, Shorts, and Reels.
 
@@ -29,6 +34,7 @@ A CLI tool that automatically pairs images with audio (or images with TTS text f
 
 ```text
 ./input/
+├── t.txt       ← title text for thumbnail intro (optional)
 ├── 01.png     ← image
 ├── 01.mp3     ← audio (used directly)
 ├── 02.webp
@@ -70,11 +76,14 @@ p2v models
 
 ---
 
-### 3. Keep intermediate segment files (`-k` / `--keep`)
+### 3. Keep intermediate segment files & Thumbnail (`-k` / `--keep`)
 
 ```bash
-# Keep both segment videos (.mp4) and TTS audio (.wav)
+# Keep both segment videos (.mp4), TTS audio (.wav), and thumbnail.jpg
 p2v -k
+
+# Export thumbnail image only (thumbnail.jpg from first frame)
+p2v -k thumb
 
 # Keep individual segment videos (.mp4) only
 p2v -k video
@@ -83,14 +92,12 @@ p2v -k video
 p2v -k audio
 ```
 
-Result with `-k video`:
+Result with `-k thumb`:
 
 ```text
 ./output/
-├── output.mp4   ← final concatenated & composited video
-├── 01.mp4
-├── 02.mp4
-└── 03.mp4
+├── output.mp4       ← final concatenated & composited video
+└── thumbnail.jpg    ← extracted high quality first frame thumbnail
 ```
 
 ---
@@ -137,15 +144,15 @@ p2v validate -i ./input
 
 ### `p2v build` (Default)
 
-| Option               | Description                                              | Default            |
-| :------------------- | :------------------------------------------------------- | :----------------- |
-| `-i, --input <dir>`  | Path to input directory containing images & audio/txt    | `.` (current dir)  |
-| `-o, --output <dir>` | Path to output directory                                 | `.` (current dir)  |
-| `-f, --force`        | Overwrite existing output files                          | `false`            |
-| `-k, --keep [type]`  | Keep intermediate files: `-k` (all), `video`, or `audio` | `false`            |
-| `-m, --model <name>` | TTS model name to use for text synthesis                 | Configured default |
-| `-h, --help`         | Show help                                                |                    |
-| `-V, --version`      | Show version number                                      |                    |
+| Option               | Description                                                       | Default            |
+| :------------------- | :---------------------------------------------------------------- | :----------------- |
+| `-i, --input <dir>`  | Path to input directory containing images & audio/txt             | `.` (current dir)  |
+| `-o, --output <dir>` | Path to output directory                                          | `.` (current dir)  |
+| `-f, --force`        | Overwrite existing output files                                   | `false`            |
+| `-k, --keep [type]`  | Keep intermediate files: `-k` (all), `video`, `audio`, or `thumb` | `false`            |
+| `-m, --model <name>` | TTS model name to use for text synthesis                          | Configured default |
+| `-h, --help`         | Show help                                                         |                    |
+| `-V, --version`      | Show version number                                               |                    |
 
 ### `p2v models`
 

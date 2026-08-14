@@ -3,6 +3,8 @@ export const CONFIG = {
   DEFAULT_INPUT_DIR: ".",
   DEFAULT_OUTPUT_DIR: ".",
   DEFAULT_OUTPUT_FILENAME: "output.mp4",
+  DEFAULT_TITLE_FILENAME: "t.txt",
+  IGNORED_PREFIXES: ["_"],
 
   // Gap / Transition Settings
   DEFAULT_GAP_DURATION: 0.3,
@@ -17,6 +19,14 @@ export const CONFIG = {
   // ONNX TTS Model Defaults
   DEFAULT_TTS_MODEL: "ngochuyen5",
   DEFAULT_TTS_SPEED: 1.1,
+
+  // Thumbnail Settings
+  DEFAULT_THUMB_DURATION: 0.3,
+  DEFAULT_THUMB_BLUR_RADIUS: 15,
+  DEFAULT_THUMB_FRAME_PATH: "assets/frames/flower_frame.png",
+  DEFAULT_THUMB_FONT_PATH: "assets/fonts/Quicksand-Bold.ttf",
+  DEFAULT_THUMB_TEXT_COLOR: "#ff6e80",
+  DEFAULT_THUMB_OUTPUT_FILENAME: "thumbnail.jpg",
 
   // Supported Extensions
   SUPPORTED_IMAGE_EXTS: [".png", ".jpg", ".jpeg", ".webp"],

@@ -8,6 +8,14 @@ const SUPPORTED_IMAGE_EXTS = new Set<string>(CONFIG.SUPPORTED_IMAGE_EXTS)
 const SUPPORTED_AUDIO_EXTS = new Set<string>(CONFIG.SUPPORTED_AUDIO_EXTS)
 const SUPPORTED_TEXT_EXTS = new Set<string>(CONFIG.SUPPORTED_TEXT_EXTS)
 
+export function isIgnoredFile(filename: string): boolean {
+  return CONFIG.IGNORED_PREFIXES.some((prefix) => filename.startsWith(prefix))
+}
+
+export function isTitleFile(filename: string): boolean {
+  return filename.toLowerCase() === CONFIG.DEFAULT_TITLE_FILENAME.toLowerCase()
+}
+
 export async function scanInputDirectory(
   inputDir: string
 ): Promise<ScanResult> {
@@ -17,6 +25,8 @@ export async function scanInputDirectory(
 
   const files = fs.readdirSync(inputDir)
 
+  let titlePath: string | undefined
+
   const imagesByBasename = new Map<string, string[]>()
   const audiosByBasename = new Map<string, string[]>()
   const textsByBasename = new Map<string, string[]>()
@@ -25,6 +35,15 @@ export async function scanInputDirectory(
     const fullPath = path.join(inputDir, file)
     const stat = fs.statSync(fullPath)
     if (!stat.isFile()) continue
+
+    if (isIgnoredFile(file)) {
+      continue
+    }
+
+    if (isTitleFile(file)) {
+      titlePath = fullPath
+      continue
+    }
 
     const ext = path.extname(file).toLowerCase()
     const basename = path.basename(file, path.extname(file)).toLowerCase()
@@ -136,6 +155,7 @@ export async function scanInputDirectory(
 
   return {
     pairs,
+    titlePath,
     missingImages,
     missingAudios,
     duplicateImages,
@@ -154,6 +174,7 @@ export function getRandomMediaFile(
   const files = fs.readdirSync(dirPath).filter((f) => {
     const fullPath = path.join(dirPath, f)
     if (!fs.statSync(fullPath).isFile()) return false
+    if (isIgnoredFile(f)) return false
     return extsSet.has(path.extname(f).toLowerCase())
   })
 

@@ -12,12 +12,19 @@ const pkgRootDir = path.resolve(__dirname, "..")
 import {
   checkFFmpegAvailability,
   concatVideosWithGap,
+  extractVideoFrame,
   getAudioDuration,
   renderVideo,
   verifyVideo,
 } from "./ffmpeg.js"
 import { OnnxTTSEngine } from "./onnx.js"
-import { getRandomMediaFile, scanInputDirectory } from "./scanner.js"
+import {
+  getRandomMediaFile,
+  isIgnoredFile,
+  isTitleFile,
+  scanInputDirectory,
+} from "./scanner.js"
+import { generateThumbnailImage } from "./thumbnail.js"
 import {
   BuildOptions,
   MediaPair,
@@ -176,6 +183,7 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
         : "none"
   const keepVideo = keepVal === "video" || keepVal === "all"
   const keepAudio = keepVal === "audio" || keepVal === "all"
+  const keepThumb = keepVal === "thumb" || keepVal === "all"
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "p2v_"))
   const videoPathsForConcat: string[] = []
@@ -284,6 +292,35 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       CONFIG.SUPPORTED_AUDIO_EXTS
     )
 
+    // Optional Step: Generate thumbnail image if t.txt exists in input directory
+    let thumbOverlayPath: string | null = null
+    if (result.titlePath && fs.existsSync(result.titlePath)) {
+      const thumbSpinner = createSpinner("Generating thumbnail intro...")
+      currentSpinner = thumbSpinner
+      try {
+        const titleText = fs.readFileSync(result.titlePath, "utf-8").trim()
+        if (titleText) {
+          const targetThumbPath = path.join(tempDir, "thumbnail_overlay.png")
+          await generateThumbnailImage({
+            titleText,
+            outputPath: targetThumbPath,
+          })
+          thumbOverlayPath = targetThumbPath
+          const titleFileName = path.basename(result.titlePath)
+          thumbSpinner.succeed(
+            `Thumbnail intro generated from ${picocolors.cyan(titleFileName)}`
+          )
+        } else {
+          const titleFileName = path.basename(result.titlePath)
+          thumbSpinner.info(
+            `${titleFileName} is empty, skipping thumbnail generation`
+          )
+        }
+      } catch (err: any) {
+        thumbSpinner.warn(`Thumbnail generation skipped: ${err.message}`)
+      }
+    }
+
     // Step 6: Concatenate video clips into final output MP4 with background compositing
     const outputNameStr = picocolors.cyan(outputFileName)
     const concatSpinner = createSpinner(
@@ -302,9 +339,12 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       concatSpinner.text = `Compositing clips onto ${bgParts.join(", ")}...`
     }
 
-    await concatVideosWithGap(videoPathsForConcat, finalOutputPath, {
+    await concatVideosWithGap({
+      videoPaths: videoPathsForConcat,
+      outputPath: finalOutputPath,
       bgVideoPath: randomBgVideo,
       bgMusicPath: randomBgMusic,
+      thumbOverlayPath,
     })
 
     const elapsedTime = (Date.now() - startTime) / 1000
@@ -312,6 +352,27 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     concatSpinner.succeed(
       `Final video: ${picocolors.cyan(relFinalPath)}${timeStr}`
     )
+
+    if (keepThumb) {
+      const thumbJpgPath = path.join(
+        outputDir,
+        CONFIG.DEFAULT_THUMB_OUTPUT_FILENAME
+      )
+      const relThumbPath =
+        path.relative(process.cwd(), thumbJpgPath) || thumbJpgPath
+      try {
+        await extractVideoFrame(finalOutputPath, thumbJpgPath, 0)
+        console.log(
+          `  ${picocolors.dim("├─")} Thumbnail: ${picocolors.yellow(relThumbPath)}`
+        )
+      } catch (thumbErr: any) {
+        console.warn(
+          picocolors.yellow(
+            `  ${picocolors.dim("├─")} Failed to export thumbnail: ${thumbErr.message}`
+          )
+        )
+      }
+    }
 
     if (randomBgVideo && randomBgMusic) {
       console.log(
@@ -363,6 +424,10 @@ export async function ttsCommand({
       const fullPath = path.join(inputDir, file)
       const stat = fs.statSync(fullPath)
       if (!stat.isFile()) continue
+
+      if (isIgnoredFile(file) || isTitleFile(file)) {
+        continue
+      }
 
       const ext = path.extname(file).toLowerCase()
       if (textExts.has(ext)) {

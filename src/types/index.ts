@@ -19,6 +19,7 @@ export interface ImageDimensionInfo {
 
 export interface ScanResult {
   pairs: MediaPair[]
+  titlePath?: string
   missingImages: string[] // audio or text file names without image
   missingAudios: string[] // image file names without audio or text
   duplicateImages: Map<string, string[]> // basename -> array of image file names
@@ -31,8 +32,11 @@ export interface ScanResult {
 // ============================================================================
 
 export interface ConcatOptions {
+  videoPaths: string[]
+  outputPath: string
   bgVideoPath?: string | null
   bgMusicPath?: string | null
+  thumbOverlayPath?: string | null
 }
 
 export interface VerificationResult {

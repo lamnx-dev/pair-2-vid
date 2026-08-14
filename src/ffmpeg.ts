@@ -321,10 +321,10 @@ function calculateRandomStartOffset(
 }
 
 export async function concatVideosWithGap(
-  videoPaths: string[],
-  outputPath: string,
-  options: ConcatOptions = {}
+  options: ConcatOptions
 ): Promise<void> {
+  const { videoPaths, outputPath, thumbOverlayPath, bgVideoPath, bgMusicPath } =
+    options
   if (videoPaths.length === 0) return
 
   const { ffmpegPath } = await checkFFmpegAvailability()
@@ -332,6 +332,11 @@ export async function concatVideosWithGap(
   const gapDuration = CONFIG.DEFAULT_GAP_DURATION
   const bgMusicVol = CONFIG.DEFAULT_BG_MUSIC_VOLUME
   const fgScaleRatio = CONFIG.DEFAULT_FG_SCALE
+
+  const thumbDuration =
+    thumbOverlayPath && fs.existsSync(thumbOverlayPath)
+      ? CONFIG.DEFAULT_THUMB_DURATION
+      : 0
 
   const fps = 30
   const targetW = 1080
@@ -353,7 +358,8 @@ export async function concatVideosWithGap(
   const totalClipsDuration = clipDurations.reduce((sum, d) => sum + d, 0)
   const totalInternalGaps = Math.max(0, videoPaths.length - 1) * gapDuration
   const bodyDuration = totalClipsDuration + totalInternalGaps
-  const totalFinalDuration = gapDuration + bodyDuration + gapDuration
+  const totalFinalDuration =
+    thumbDuration + gapDuration + bodyDuration + gapDuration
 
   const ffmpegArgs: string[] = ["-y"]
 
@@ -365,11 +371,12 @@ export async function concatVideosWithGap(
   let nextInputIdx = videoPaths.length
   let bgvIdx: number | null = null
   let bgmIdx: number | null = null
+  let thumbIdx: number | null = null
 
-  if (options.bgVideoPath && fs.existsSync(options.bgVideoPath)) {
+  if (bgVideoPath && fs.existsSync(bgVideoPath)) {
     let offset = 0
     try {
-      const bgvDuration = await getVideoDuration(options.bgVideoPath)
+      const bgvDuration = await getVideoDuration(bgVideoPath)
       offset = calculateRandomStartOffset(bgvDuration, totalFinalDuration)
     } catch {
       offset = 0
@@ -377,13 +384,18 @@ export async function concatVideosWithGap(
     if (offset > 0) {
       ffmpegArgs.push("-ss", offset.toFixed(3))
     }
-    ffmpegArgs.push("-stream_loop", "-1", "-i", options.bgVideoPath)
+    ffmpegArgs.push("-stream_loop", "-1", "-i", bgVideoPath)
     bgvIdx = nextInputIdx++
   }
 
-  if (options.bgMusicPath && fs.existsSync(options.bgMusicPath)) {
-    ffmpegArgs.push("-stream_loop", "-1", "-i", options.bgMusicPath)
+  if (bgMusicPath && fs.existsSync(bgMusicPath)) {
+    ffmpegArgs.push("-stream_loop", "-1", "-i", bgMusicPath)
     bgmIdx = nextInputIdx++
+  }
+
+  if (thumbDuration > 0 && thumbOverlayPath) {
+    ffmpegArgs.push("-loop", "1", "-i", thumbOverlayPath)
+    thumbIdx = nextInputIdx++
   }
 
   const filterParts: string[] = []
@@ -414,10 +426,11 @@ export async function concatVideosWithGap(
     `${concatInputs.join("")}concat=n=${segmentCount}:v=1:a=1[fgv_raw][fga_raw]`
   )
 
-  const headGapMs = Math.round(gapDuration * 1000)
-  if (headGapMs > 0) {
+  const headDelaySec = thumbDuration + gapDuration
+  const headDelayMs = Math.round(headDelaySec * 1000)
+  if (headDelayMs > 0) {
     filterParts.push(
-      `[fga_raw]adelay=delays=${headGapMs}|${headGapMs}[fga_delayed]`
+      `[fga_raw]adelay=delays=${headDelayMs}|${headDelayMs}[fga_delayed]`
     )
   } else {
     filterParts.push(`[fga_raw]anull[fga_delayed]`)
@@ -433,8 +446,27 @@ export async function concatVideosWithGap(
     )
   }
 
+  let currentV = "bgv_base"
+
+  if (thumbIdx !== null) {
+    if (CONFIG.DEFAULT_THUMB_BLUR_RADIUS > 0) {
+      filterParts.push(
+        `[bgv_base]boxblur=luma_radius=${CONFIG.DEFAULT_THUMB_BLUR_RADIUS}:luma_power=2:enable='between(t,0,${thumbDuration.toFixed(6)})'[bgv_blurred]`
+      )
+      currentV = "bgv_blurred"
+    }
+
+    filterParts.push(
+      `[${thumbIdx}:v]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:'(ow-iw)/2':'(oh-ih)/2':color=black@0,setsar=1,format=yuva420p[thumb_scaled]`
+    )
+    filterParts.push(
+      `[${currentV}][thumb_scaled]overlay=x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2:enable='between(t,0,${thumbDuration.toFixed(6)})':shortest=0[bgv_with_thumb]`
+    )
+    currentV = "bgv_with_thumb"
+  }
+
   filterParts.push(
-    `[bgv_base][fgv_raw]overlay=x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2:enable='gte(t,${gapDuration.toFixed(6)})':shortest=0[outv_raw]`
+    `[${currentV}][fgv_raw]overlay=x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2:enable='gte(t,${headDelaySec.toFixed(6)})':shortest=0[outv_raw]`
   )
   filterParts.push(
     `[outv_raw]trim=duration=${totalFinalDuration.toFixed(6)},setpts=PTS-STARTPTS[outv]`
@@ -480,4 +512,33 @@ export async function concatVideosWithGap(
   )
 
   await execa(ffmpegPath, ffmpegArgs)
+}
+
+/**
+ * Extracts a single frame (e.g. first frame at 00:00:00) from a video file as JPEG
+ */
+export async function extractVideoFrame(
+  videoPath: string,
+  outputPath: string,
+  timeOffsetSec: number = 0
+): Promise<void> {
+  const { ffmpegPath } = await checkFFmpegAvailability()
+
+  const dir = path.dirname(outputPath)
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+
+  await execa(ffmpegPath, [
+    "-y",
+    "-ss",
+    timeOffsetSec.toFixed(3),
+    "-i",
+    videoPath,
+    "-vframes",
+    "1",
+    "-q:v",
+    "2",
+    outputPath,
+  ])
 }

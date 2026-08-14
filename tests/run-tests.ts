@@ -276,6 +276,39 @@ async function main() {
     console.log(err.stdout || err.stderr || err.message)
   }
 
+  // Test thumbnail with t.txt
+  console.log("\n--- Test 6: Thumbnail intro generation from t.txt ---")
+  const thumbInputDir = path.join(TEST_DIR, "thumb_input")
+  const thumbOutputDir = path.join(TEST_DIR, "thumb_output")
+  fs.mkdirSync(thumbInputDir, { recursive: true })
+  fs.mkdirSync(thumbOutputDir, { recursive: true })
+
+  fs.writeFileSync(
+    path.join(thumbInputDir, "t.txt"),
+    "Những điều người lớn chưa từng dạy",
+    "utf-8"
+  )
+  await createTestImage(path.join(thumbInputDir, "01.png"), 1080, 1920)
+  await createTestAudio(path.join(thumbInputDir, "01.mp3"), 2.0)
+
+  const thumbBuildResult = await execa("npx", [
+    "tsx",
+    "src/cli.ts",
+    "build",
+    "-i",
+    thumbInputDir,
+    "-o",
+    thumbOutputDir,
+    "--force",
+  ])
+  console.log(thumbBuildResult.stdout)
+
+  const thumbOutputFile = path.join(thumbOutputDir, "output.mp4")
+  if (!fs.existsSync(thumbOutputFile)) {
+    throw new Error("Thumbnail build failed: output.mp4 not found!")
+  }
+  console.log("✓ Video with thumbnail intro generated successfully!")
+
   // Cleanup test directory
   fs.rmSync(TEST_DIR, { recursive: true, force: true })
 
