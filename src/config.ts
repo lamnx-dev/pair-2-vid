@@ -9,6 +9,9 @@ export const CONFIG = {
   // Gap / Transition Settings
   DEFAULT_GAP_DURATION: 0.3,
 
+  // Concurrency Settings
+  DEFAULT_CONCURRENCY: 5,
+
   // Background Repositories & Compositing Settings
   DEFAULT_BG_VIDEO_DIR: "assets/bg_videos",
   DEFAULT_BG_MUSIC_DIR: "assets/bg_music",

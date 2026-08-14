@@ -45,28 +45,73 @@ async function synthesizeTTSForItems({
 }: SynthesizeTTSOptions): Promise<SynthesizeTTSResult> {
   if (items.length === 0) return { synthesized: 0, skipped: 0 }
 
-  const spinner = createSpinner("Initializing ONNX TTS Engine...")
+  const concurrencyLimit = Math.max(1, CONFIG.DEFAULT_CONCURRENCY)
+  const spinner = createSpinner(
+    `Initializing ONNX TTS Engine (${picocolors.cyan(`${concurrencyLimit} parallel`)})...`
+  )
 
   const ttsEngine = new OnnxTTSEngine(model)
   await ttsEngine.init()
 
   let synthesized = 0
   let skipped = 0
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]
+  let completed = 0
+  const inProgress = new Set<string>()
+
+  const updateSpinnerText = () => {
+    const activeList = Array.from(inProgress).map((f) => picocolors.cyan(f))
+    const activeInfo =
+      activeList.length > 0 ? ` [${activeList.join(", ")}]` : ""
+    const statusParts: string[] = []
+    if (synthesized > 0)
+      statusParts.push(picocolors.green(`${synthesized} synthesized`))
+    if (skipped > 0) statusParts.push(picocolors.yellow(`${skipped} skipped`))
+    const statusStr =
+      statusParts.length > 0 ? ` (${statusParts.join(", ")})` : ""
+
+    spinner.text = `Synthesizing TTS: ${completed}/${items.length}${statusStr}${activeInfo}...`
+  }
+
+  updateSpinnerText()
+
+  const tasks = items.map((item) => async () => {
     const wavPath = getWavPath(item)
     if (!force && fs.existsSync(wavPath)) {
       item.audioPath = wavPath
       skipped++
-      continue
+      completed++
+      updateSpinnerText()
+      return
     }
-    const wavFilename = picocolors.cyan(path.basename(wavPath))
-    spinner.text = `Synthesizing segment ${i + 1}/${items.length} (${wavFilename})...`
-    spinner.start()
-    await ttsEngine.synthesizeFile(item.textPath, wavPath)
-    item.audioPath = wavPath
-    synthesized++
+
+    inProgress.add(item.basename)
+    updateSpinnerText()
+
+    try {
+      await ttsEngine.synthesizeFile(item.textPath, wavPath)
+      item.audioPath = wavPath
+      synthesized++
+      completed++
+    } finally {
+      inProgress.delete(item.basename)
+      updateSpinnerText()
+    }
+  })
+
+  // Execute tasks with concurrency pool
+  const executing: Promise<void>[] = []
+  for (const task of tasks) {
+    const p = Promise.resolve().then(() => task())
+    executing.push(p)
+    p.finally(() => {
+      const idx = executing.indexOf(p)
+      if (idx !== -1) executing.splice(idx, 1)
+    })
+    if (executing.length >= concurrencyLimit) {
+      await Promise.race(executing)
+    }
   }
+  await Promise.all(executing)
 
   const parts: string[] = []
   if (synthesized > 0)
@@ -207,15 +252,36 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       model: options.model,
     })
 
-    // Step 4: Render single video segments
-    const renderSpinner = createSpinner("Rendering video segments...")
+    // Step 4: Render single video segments (Parallel with fixed CONFIG.DEFAULT_CONCURRENCY)
+    const concurrencyLimit = Math.max(1, CONFIG.DEFAULT_CONCURRENCY)
+    const totalPairs = result.pairs.length
+    const renderSpinner = createSpinner(
+      `Rendering ${totalPairs} video segments (${picocolors.cyan(`${concurrencyLimit} parallel`)})...`
+    )
     currentSpinner = renderSpinner
     let renderedCount = 0
     let skippedCount = 0
+    let completedCount = 0
+    const inProgress = new Set<string>()
 
-    for (let i = 0; i < result.pairs.length; i++) {
-      const pair = result.pairs[i]
+    const updateSpinnerText = () => {
+      const activeList = Array.from(inProgress).map((f) => picocolors.cyan(f))
+      const activeInfo =
+        activeList.length > 0 ? ` [${activeList.join(", ")}]` : ""
+      const statusParts: string[] = []
+      if (renderedCount > 0)
+        statusParts.push(picocolors.green(`${renderedCount} rendered`))
+      if (skippedCount > 0)
+        statusParts.push(picocolors.yellow(`${skippedCount} skipped`))
+      const statusStr =
+        statusParts.length > 0 ? ` (${statusParts.join(", ")})` : ""
 
+      renderSpinner.text = `Rendering segments: ${completedCount}/${totalPairs}${statusStr}${activeInfo}...`
+    }
+
+    const renderedPaths: { index: number; path: string }[] = []
+
+    const tasks = result.pairs.map((pair, index) => async () => {
       if (!pair.audioPath) {
         throw new Error(`Missing audio for pair "${pair.basename}"`)
       }
@@ -226,38 +292,67 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       )
 
       if (keepVideo && fs.existsSync(targetVideoPath) && !options.force) {
-        videoPathsForConcat.push(targetVideoPath)
+        renderedPaths.push({ index, path: targetVideoPath })
         skippedCount++
-        continue
+        completedCount++
+        updateSpinnerText()
+        return
       }
 
-      const videoFilename = picocolors.cyan(path.basename(targetVideoPath))
-      renderSpinner.text = `Rendering segment ${i + 1}/${result.pairs.length} (${videoFilename})...`
+      inProgress.add(pair.basename)
+      updateSpinnerText()
 
-      const duration = await getAudioDuration(pair.audioPath)
-      await renderVideo(
-        pair.imagePath,
-        pair.audioPath,
-        targetVideoPath,
-        duration
-      )
-
-      const verification = await verifyVideo(
-        targetVideoPath,
-        duration,
-        pair.imageDimensions?.width ?? 0,
-        pair.imageDimensions?.height ?? 0
-      )
-
-      if (!verification.valid) {
-        renderSpinner.fail(
-          `Verification failed for ${pair.basename}: ${verification.errors.join(", ")}`
+      try {
+        const duration = await getAudioDuration(pair.audioPath)
+        await renderVideo(
+          pair.imagePath,
+          pair.audioPath,
+          targetVideoPath,
+          duration
         )
-        process.exit(1)
-      }
 
-      videoPathsForConcat.push(targetVideoPath)
-      renderedCount++
+        const verification = await verifyVideo(
+          targetVideoPath,
+          duration,
+          pair.imageDimensions?.width ?? 0,
+          pair.imageDimensions?.height ?? 0
+        )
+
+        if (!verification.valid) {
+          renderSpinner.fail(
+            `Verification failed for ${pair.basename}: ${verification.errors.join(", ")}`
+          )
+          process.exit(1)
+        }
+
+        renderedPaths.push({ index, path: targetVideoPath })
+        renderedCount++
+        completedCount++
+      } finally {
+        inProgress.delete(pair.basename)
+        updateSpinnerText()
+      }
+    })
+
+    // Execute tasks in parallel pool with concurrency limit
+    const executing: Promise<void>[] = []
+    for (const task of tasks) {
+      const p = Promise.resolve().then(() => task())
+      executing.push(p)
+      p.finally(() => {
+        const idx = executing.indexOf(p)
+        if (idx !== -1) executing.splice(idx, 1)
+      })
+      if (executing.length >= concurrencyLimit) {
+        await Promise.race(executing)
+      }
+    }
+    await Promise.all(executing)
+
+    // Sort paths by original pair order
+    renderedPaths.sort((a, b) => a.index - b.index)
+    for (const item of renderedPaths) {
+      videoPathsForConcat.push(item.path)
     }
 
     const renderParts: string[] = []

@@ -143,6 +143,8 @@ export async function renderVideo(
     "scale=trunc(iw/2)*2:trunc(ih/2)*2",
     "-c:v",
     "libx264",
+    "-preset",
+    "ultrafast",
     "-tune",
     "stillimage",
     "-c:a",
@@ -153,8 +155,11 @@ export async function renderVideo(
     "yuv420p",
     "-r",
     fps.toString(),
+    "-threads",
+    "0",
     "-t",
     duration.toFixed(6),
+    "-shortest",
     outputPath,
   ])
 }
@@ -384,17 +389,38 @@ export async function concatVideosWithGap(
     if (offset > 0) {
       ffmpegArgs.push("-ss", offset.toFixed(3))
     }
-    ffmpegArgs.push("-stream_loop", "-1", "-i", bgVideoPath)
+    ffmpegArgs.push(
+      "-t",
+      totalFinalDuration.toFixed(6),
+      "-stream_loop",
+      "-1",
+      "-i",
+      bgVideoPath
+    )
     bgvIdx = nextInputIdx++
   }
 
   if (bgMusicPath && fs.existsSync(bgMusicPath)) {
-    ffmpegArgs.push("-stream_loop", "-1", "-i", bgMusicPath)
+    ffmpegArgs.push(
+      "-t",
+      totalFinalDuration.toFixed(6),
+      "-stream_loop",
+      "-1",
+      "-i",
+      bgMusicPath
+    )
     bgmIdx = nextInputIdx++
   }
 
   if (thumbDuration > 0 && thumbOverlayPath) {
-    ffmpegArgs.push("-loop", "1", "-i", thumbOverlayPath)
+    ffmpegArgs.push(
+      "-loop",
+      "1",
+      "-t",
+      thumbDuration.toFixed(6),
+      "-i",
+      thumbOverlayPath
+    )
     thumbIdx = nextInputIdx++
   }
 
@@ -451,7 +477,7 @@ export async function concatVideosWithGap(
   if (thumbIdx !== null) {
     if (CONFIG.DEFAULT_THUMB_BLUR_RADIUS > 0) {
       filterParts.push(
-        `[bgv_base]boxblur=luma_radius=${CONFIG.DEFAULT_THUMB_BLUR_RADIUS}:luma_power=2:enable='between(t,0,${thumbDuration.toFixed(6)})'[bgv_blurred]`
+        `[bgv_base]avgblur=sizeX=${CONFIG.DEFAULT_THUMB_BLUR_RADIUS}:sizeY=${CONFIG.DEFAULT_THUMB_BLUR_RADIUS}:enable='between(t,0,${thumbDuration.toFixed(6)})'[bgv_blurred]`
       )
       currentV = "bgv_blurred"
     }
@@ -466,7 +492,10 @@ export async function concatVideosWithGap(
   }
 
   filterParts.push(
-    `[${currentV}][fgv_raw]overlay=x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2:enable='gte(t,${headDelaySec.toFixed(6)})':shortest=0[outv_raw]`
+    `[fgv_raw]setpts=PTS+${headDelaySec.toFixed(6)}/TB[fgv_shifted]`
+  )
+  filterParts.push(
+    `[${currentV}][fgv_shifted]overlay=x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2:eof_action=pass[outv_raw]`
   )
   filterParts.push(
     `[outv_raw]trim=duration=${totalFinalDuration.toFixed(6)},setpts=PTS-STARTPTS[outv]`
@@ -498,6 +527,8 @@ export async function concatVideosWithGap(
     "[outa]",
     "-c:v",
     "libx264",
+    "-preset",
+    "veryfast",
     "-c:a",
     "aac",
     "-b:a",
@@ -506,6 +537,8 @@ export async function concatVideosWithGap(
     "yuv420p",
     "-r",
     fps.toString(),
+    "-threads",
+    "0",
     "-t",
     totalFinalDuration.toFixed(6),
     outputPath
