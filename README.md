@@ -1,6 +1,6 @@
 # pair-2-vid (`p2v`)
 
-A CLI tool that automatically pairs images with audio (or images with TTS text files) to produce complete MP4 videos with background video/music compositing and ONNX-based Text-to-Speech support.
+A CLI tool that automatically pairs images with audio (or images with TTS text files) to produce complete MP4 videos with background video/music compositing, thumbnail intro overlay, and ONNX-based Text-to-Speech support.
 
 ---
 
@@ -9,7 +9,7 @@ A CLI tool that automatically pairs images with audio (or images with TTS text f
 - **Smart pairing:** Automatically matches images and audio/text by **basename** (e.g. `01.png` + `01.mp3`, or `02.webp` + `02.txt`).
 - **TTS from text files:** If an image is paired with a `.txt` file (and no audio file), the tool synthesizes speech automatically using a local Piper ONNX model (default: `ngochuyen5` — Vietnamese) and merges it into the video segment.
 - **Thumbnail / Title Intro Overlay:**
-  - Automatically detects `t.txt` (or `_t.txt`) in the input folder to generate a floral frame thumbnail intro at the beginning of the video (`DEFAULT_THUMB_DURATION = 0.3s`).
+  - Automatically detects `t.txt` in the input folder to generate a floral frame thumbnail intro at the beginning of the video (`DEFAULT_THUMB_DURATION = 0.3s`).
   - Text is automatically wrapped (2-3 words per line), centered, and rendered using custom font `Quicksand-Bold.ttf`.
   - Background video is gently blurred (`boxblur`, radius 15) during thumbnail intro for premium aesthetic presentation.
   - Export thumbnail image directly with `-k thumb` to create `thumbnail.jpg` (first frame of the video).

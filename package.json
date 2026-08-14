@@ -1,7 +1,7 @@
 {
   "name": "pair-2-vid",
   "version": "1.3.0",
-  "description": "CLI tool that batches image+audio (or image+text TTS) pairs into MP4 videos",
+  "description": "CLI tool for creating MP4 videos from images and audio or TTS text, with background compositing, intro overlays, and ONNX TTS support",
   "main": "dist/cli.js",
   "type": "module",
   "bin": {
