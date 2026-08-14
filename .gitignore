@@ -1,4 +1,5 @@
 node_modules/
 dist/
-assets/bg_videos/*
-assets/bg_music/*
+assets/bg_videos/
+assets/bg_music/
+models/
