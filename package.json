@@ -10,10 +10,11 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "tsx tests/run-tests.ts",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "fmt": "oxfmt",
+    "test": "tsx tests/run-tests.ts",
+    "test:thumb": "tsx tests/test-thumb.ts",
     "prepack": "pnpm build",
     "prepare": "husky"
   },

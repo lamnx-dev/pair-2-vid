@@ -7,7 +7,7 @@ import { checkFFmpegAvailability, getAudioDuration } from "../src/ffmpeg.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pkgRootDir = path.resolve(__dirname, "..")
-const TEST_DIR = path.resolve("./test_temp")
+const TEST_DIR = path.resolve(pkgRootDir, "tests/artifacts/integration_temp")
 
 async function createTestImage(
   filePath: string,

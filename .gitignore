@@ -3,3 +3,4 @@ dist/
 assets/bg_videos/
 assets/bg_music/
 models/
+tests/artifacts/
