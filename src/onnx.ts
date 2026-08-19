@@ -5,7 +5,6 @@ import { fileURLToPath } from "url"
 import { initialize, phonemizeToString } from "piper-phonemize"
 import { CONFIG } from "./config.js"
 import { OnnxTTSConfig } from "./types/index.js"
-import { getDefaultTTSModel } from "./user-config.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pkgRootDir = path.resolve(__dirname, "..")
@@ -19,7 +18,7 @@ export class OnnxTTSEngine {
   private configPath: string
 
   constructor(modelName?: string) {
-    const name = modelName ?? getDefaultTTSModel()
+    const name = modelName ?? CONFIG.DEFAULT_TTS_MODEL
     this.modelPath = path.resolve(pkgRootDir, `models/${name}.onnx`)
     this.configPath = path.resolve(pkgRootDir, `models/${name}.onnx.json`)
   }

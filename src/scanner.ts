@@ -9,7 +9,11 @@ const SUPPORTED_AUDIO_EXTS = new Set<string>(CONFIG.SUPPORTED_AUDIO_EXTS)
 const SUPPORTED_TEXT_EXTS = new Set<string>(CONFIG.SUPPORTED_TEXT_EXTS)
 
 export function isIgnoredFile(filename: string): boolean {
-  return CONFIG.IGNORED_PREFIXES.some((prefix) => filename.startsWith(prefix))
+  if (CONFIG.IGNORED_PREFIXES.some((prefix) => filename.startsWith(prefix))) {
+    return true
+  }
+  const lowerName = filename.toLowerCase()
+  return CONFIG.IGNORED_FILENAMES.some((f) => f.toLowerCase() === lowerName)
 }
 
 export function isTitleFile(filename: string): boolean {
@@ -36,12 +40,12 @@ export async function scanInputDirectory(
     const stat = fs.statSync(fullPath)
     if (!stat.isFile()) continue
 
-    if (isIgnoredFile(file)) {
+    if (isTitleFile(file)) {
+      titlePath = fullPath
       continue
     }
 
-    if (isTitleFile(file)) {
-      titlePath = fullPath
+    if (isIgnoredFile(file)) {
       continue
     }
 

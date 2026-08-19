@@ -9,7 +9,7 @@ A CLI tool that automatically pairs images with audio (or images with TTS text f
 - **Smart pairing:** Automatically matches images and audio/text by **basename** (e.g. `01.png` + `01.mp3`, or `02.webp` + `02.txt`).
 - **TTS from text files:** If an image is paired with a `.txt` file (and no audio file), the tool synthesizes speech automatically using a local Piper ONNX model (default: `ngochuyen5` — Vietnamese) and merges it into the video segment.
 - **Thumbnail / Title Intro Overlay:**
-  - Automatically detects `t.txt` in the input folder to generate a floral frame thumbnail intro at the beginning of the video (`DEFAULT_THUMB_DURATION = 0.3s`).
+  - Automatically detects `title.txt` in the input folder to generate a floral frame thumbnail intro at the beginning of the video (`DEFAULT_THUMB_DURATION = 0.1s`).
   - Text is automatically wrapped (2-3 words per line), centered, and rendered using custom font `Quicksand-Bold.ttf`.
   - Background video is gently blurred (`boxblur`, radius 15) during thumbnail intro for premium aesthetic presentation.
   - Export thumbnail image directly with `-k thumb` to create `thumbnail.jpg` (first frame of the video).
@@ -24,7 +24,7 @@ A CLI tool that automatically pairs images with audio (or images with TTS text f
 - **Supported formats:**
   - Images: `.png`, `.jpg`, `.jpeg`, `.webp`
   - Audio: `.mp3`, `.wav`, `.m4a`, `.aac`
-  - Text (TTS & Title): `.txt` (e.g. `t.txt` for title intro)
+  - Text (TTS & Title): `.txt` (e.g. `title.txt` for title intro)
   - Video (for background): `.mp4`, `.mov`, `.mkv`, `.webm`
 - **Standard encoding:** H.264 + AAC (`yuv420p`), fully compatible with CapCut, Premiere, DaVinci, TikTok, Shorts, and Reels.
 
@@ -34,7 +34,7 @@ A CLI tool that automatically pairs images with audio (or images with TTS text f
 
 ```text
 ./input/
-├── t.txt       ← title text for thumbnail intro (optional)
+├── title.txt       ← title text for thumbnail intro (optional)
 ├── 01.png     ← image
 ├── 01.mp3     ← audio (used directly)
 ├── 02.webp
@@ -144,28 +144,24 @@ p2v validate -i ./input
 
 ### `p2v build` (Default)
 
-| Option               | Description                                                       | Default            |
-| :------------------- | :---------------------------------------------------------------- | :----------------- |
-| `-i, --input <dir>`  | Path to input directory containing images & audio/txt             | `.` (current dir)  |
-| `-o, --output <dir>` | Path to output directory                                          | `.` (current dir)  |
-| `-f, --force`        | Overwrite existing output files                                   | `false`            |
-| `-k, --keep [type]`  | Keep intermediate files: `-k` (all), `video`, `audio`, or `thumb` | `false`            |
-| `-m, --model <name>` | TTS model name to use for text synthesis                          | Configured default |
-| `-h, --help`         | Show help                                                         |                    |
-| `-V, --version`      | Show version number                                               |                    |
-
-### `p2v models`
-
-Interactive selector to view available ONNX TTS models and change the default model saved in `~/.p2vrc`.
+| Option               | Description                                                       | Default           |
+| :------------------- | :---------------------------------------------------------------- | :---------------- |
+| `-i, --input <dir>`  | Path to input directory containing images & audio/txt             | `.` (current dir) |
+| `-o, --output <dir>` | Path to output directory                                          | `.` (current dir) |
+| `-f, --force`        | Overwrite existing output files                                   | `false`           |
+| `-k, --keep [type]`  | Keep intermediate files: `-k` (all), `video`, `audio`, or `thumb` | `false`           |
+| `-m, --model <name>` | TTS model name to use for text synthesis                          | `ngochuyen5`      |
+| `-h, --help`         | Show help                                                         |                   |
+| `-V, --version`      | Show version number                                               |                   |
 
 ### `p2v tts`
 
-| Option               | Description                               | Default            |
-| :------------------- | :---------------------------------------- | :----------------- |
-| `-i, --input <dir>`  | Path to directory containing `.txt` files | `.` (current dir)  |
-| `-o, --output <dir>` | Path to output directory for `.wav` files | `.` (current dir)  |
-| `-f, --force`        | Overwrite existing `.wav` files           | `false`            |
-| `-m, --model <name>` | TTS model name to use for text synthesis  | Configured default |
+| Option               | Description                               | Default           |
+| :------------------- | :---------------------------------------- | :---------------- |
+| `-i, --input <dir>`  | Path to directory containing `.txt` files | `.` (current dir) |
+| `-o, --output <dir>` | Path to output directory for `.wav` files | `.` (current dir) |
+| `-f, --force`        | Overwrite existing `.wav` files           | `false`           |
+| `-m, --model <name>` | TTS model name to use for text synthesis  | `ngochuyen5`      |
 
 ### `p2v test-tts`
 

@@ -160,6 +160,8 @@ export async function renderVideo(
     "-t",
     duration.toFixed(6),
     "-shortest",
+    "-movflags",
+    "+faststart",
     outputPath,
   ])
 }
@@ -541,6 +543,8 @@ export async function concatVideosWithGap(
     "0",
     "-t",
     totalFinalDuration.toFixed(6),
+    "-movflags",
+    "+faststart",
     outputPath
   )
 

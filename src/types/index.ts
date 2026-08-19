@@ -110,7 +110,3 @@ export interface TestTTSCommandOptions {
   output: string
   force?: boolean
 }
-
-export interface UserConfig {
-  defaultTTSModel?: string
-}

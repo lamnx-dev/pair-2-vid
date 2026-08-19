@@ -387,7 +387,7 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       CONFIG.SUPPORTED_AUDIO_EXTS
     )
 
-    // Optional Step: Generate thumbnail image if t.txt exists in input directory
+    // Optional Step: Generate thumbnail image if title.txt exists in input directory
     let thumbOverlayPath: string | null = null
     if (result.titlePath && fs.existsSync(result.titlePath)) {
       const thumbSpinner = createSpinner("Generating thumbnail intro...")
@@ -403,7 +403,7 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
           thumbOverlayPath = targetThumbPath
           const titleFileName = path.basename(result.titlePath)
           thumbSpinner.succeed(
-            `Thumbnail intro generated from ${picocolors.cyan(titleFileName)}`
+            `Thumbnail intro generated from ${picocolors.cyan(titleFileName)}: "${picocolors.green(titleText.replace(/\r?\n/g, " "))}"`
           )
         } else {
           const titleFileName = path.basename(result.titlePath)

@@ -276,15 +276,15 @@ async function main() {
     console.log(err.stdout || err.stderr || err.message)
   }
 
-  // Test thumbnail with t.txt
-  console.log("\n--- Test 6: Thumbnail intro generation from t.txt ---")
+  // Test thumbnail with title.txt
+  console.log("\n--- Test 6: Thumbnail intro generation from title.txt ---")
   const thumbInputDir = path.join(TEST_DIR, "thumb_input")
   const thumbOutputDir = path.join(TEST_DIR, "thumb_output")
   fs.mkdirSync(thumbInputDir, { recursive: true })
   fs.mkdirSync(thumbOutputDir, { recursive: true })
 
   fs.writeFileSync(
-    path.join(thumbInputDir, "t.txt"),
+    path.join(thumbInputDir, "title.txt"),
     "Những điều người lớn chưa từng dạy",
     "utf-8"
   )
@@ -307,7 +307,66 @@ async function main() {
   if (!fs.existsSync(thumbOutputFile)) {
     throw new Error("Thumbnail build failed: output.mp4 not found!")
   }
-  console.log("✓ Video with thumbnail intro generated successfully!")
+  // Test ignored files (caption.txt, title.txt, _notes.txt)
+  console.log(
+    "\n--- Test 7: Ignored files (caption.txt, title.txt, _notes.txt) ---"
+  )
+  const ignoreInputDir = path.join(TEST_DIR, "ignore_input")
+  const ignoreTtsDir = path.join(TEST_DIR, "ignore_tts_output")
+  fs.mkdirSync(ignoreInputDir, { recursive: true })
+  fs.mkdirSync(ignoreTtsDir, { recursive: true })
+
+  await createTestImage(path.join(ignoreInputDir, "01.png"), 1080, 1920)
+  await createTestAudio(path.join(ignoreInputDir, "01.mp3"), 2.0)
+  fs.writeFileSync(
+    path.join(ignoreInputDir, "title.txt"),
+    "Tiêu đề video",
+    "utf-8"
+  )
+  fs.writeFileSync(
+    path.join(ignoreInputDir, "caption.txt"),
+    "Đây là caption mô tả video",
+    "utf-8"
+  )
+  fs.writeFileSync(
+    path.join(ignoreInputDir, "_notes.txt"),
+    "Ghi chú nội bộ",
+    "utf-8"
+  )
+
+  // Validation must succeed without complaining about missing images for caption.txt or title.txt
+  const ignoreValResult = await execa("npx", [
+    "tsx",
+    "src/cli.ts",
+    "validate",
+    "-i",
+    ignoreInputDir,
+  ])
+  console.log(ignoreValResult.stdout)
+  console.log(
+    "✓ Validation succeeded and ignored title.txt, caption.txt, and _notes.txt!"
+  )
+
+  // TTS command should not generate wav for caption.txt, title.txt, or _notes.txt
+  const ignoreTtsResult = await execa("npx", [
+    "tsx",
+    "src/cli.ts",
+    "tts",
+    "-i",
+    ignoreInputDir,
+    "-o",
+    ignoreTtsDir,
+  ])
+  console.log(ignoreTtsResult.stdout)
+
+  if (
+    fs.existsSync(path.join(ignoreTtsDir, "caption.wav")) ||
+    fs.existsSync(path.join(ignoreTtsDir, "title.wav")) ||
+    fs.existsSync(path.join(ignoreTtsDir, "_notes.wav"))
+  ) {
+    throw new Error("TTS generated audio for ignored files!")
+  }
+  console.log("✓ TTS correctly ignored title.txt, caption.txt, and _notes.txt!")
 
   // Cleanup test directory
   fs.rmSync(TEST_DIR, { recursive: true, force: true })
