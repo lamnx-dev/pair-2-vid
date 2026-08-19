@@ -14,8 +14,8 @@ export const CONFIG = {
   DEFAULT_CONCURRENCY: 5,
 
   // Background Repositories & Compositing Settings
-  DEFAULT_BG_VIDEO_DIR: "assets/bg_videos",
-  DEFAULT_BG_MUSIC_DIR: "assets/bg_music",
+  DEFAULT_BG_VIDEO_DIR: "D:/Workspace/comment-video-studio/assets/bg_videos",
+  DEFAULT_BG_MUSIC_DIR: "D:/Workspace/comment-video-studio/assets/bg_music",
   DEFAULT_BG_MUSIC_VOLUME: 0.4,
   DEFAULT_FG_SCALE: 0.8,
   MIN_BG_START_OFFSET: 3,
@@ -27,8 +27,10 @@ export const CONFIG = {
   // Thumbnail Settings
   DEFAULT_THUMB_DURATION: 0.1,
   DEFAULT_THUMB_BLUR_RADIUS: 15,
-  DEFAULT_THUMB_FRAME_PATH: "assets/frames/flower_frame.png",
-  DEFAULT_THUMB_FONT_PATH: "assets/fonts/Quicksand-Bold.ttf",
+  DEFAULT_THUMB_FRAME_PATH:
+    "D:/Workspace/comment-video-studio/assets/frames/flower_frame.png",
+  DEFAULT_THUMB_FONT_PATH:
+    "D:/Workspace/comment-video-studio/assets/fonts/Quicksand-Bold.ttf",
   DEFAULT_THUMB_TEXT_COLOR: "#ff6e80",
   DEFAULT_THUMB_OUTPUT_FILENAME: "thumbnail.jpg",
 
