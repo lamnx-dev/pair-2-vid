@@ -14,6 +14,7 @@ import {
   concatVideosWithGap,
   extractVideoFrame,
   getAudioDuration,
+  getVideoDuration,
   renderVideo,
   verifyVideo,
 } from "./ffmpeg.js"
@@ -401,9 +402,8 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
             outputPath: targetThumbPath,
           })
           thumbOverlayPath = targetThumbPath
-          const titleFileName = path.basename(result.titlePath)
           thumbSpinner.succeed(
-            `Thumbnail intro generated from ${picocolors.cyan(titleFileName)}: "${picocolors.green(titleText.replace(/\r?\n/g, " "))}"`
+            `Thumbnail generated: ${picocolors.green(titleText.replace(/\r?\n/g, " "))}`
           )
         } else {
           const titleFileName = path.basename(result.titlePath)
@@ -442,11 +442,15 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       thumbOverlayPath,
     })
 
-    const elapsedTime = (Date.now() - startTime) / 1000
-    const timeStr = picocolors.dim(` in ${elapsedTime.toFixed(2)}s`)
-    concatSpinner.succeed(
-      `Final video: ${picocolors.cyan(relFinalPath)}${timeStr}`
-    )
+    let vidDurationStr = ""
+    try {
+      const vidDuration = await getVideoDuration(finalOutputPath)
+      vidDurationStr = ` (${vidDuration.toFixed(2)}s)`
+    } catch {
+      // ignore
+    }
+
+    const subItems: { label: string; value: string }[] = []
 
     if (keepThumb) {
       const thumbJpgPath = path.join(
@@ -457,33 +461,50 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
         path.relative(process.cwd(), thumbJpgPath) || thumbJpgPath
       try {
         await extractVideoFrame(finalOutputPath, thumbJpgPath, 0)
-        console.log(
-          `  ${picocolors.dim("├─")} Thumbnail: ${picocolors.yellow(relThumbPath)}`
-        )
+        subItems.push({
+          label: "Thumbnail",
+          value: picocolors.yellow(relThumbPath),
+        })
       } catch (thumbErr: any) {
         console.warn(
-          picocolors.yellow(
-            `  ${picocolors.dim("├─")} Failed to export thumbnail: ${thumbErr.message}`
-          )
+          picocolors.yellow(`  Failed to export thumbnail: ${thumbErr.message}`)
         )
       }
     }
 
-    if (randomBgVideo && randomBgMusic) {
-      console.log(
-        `  ${picocolors.dim("├─")} BG Video: ${picocolors.cyan(path.basename(randomBgVideo))}`
+    if (randomBgVideo) {
+      subItems.push({
+        label: "BG Video",
+        value: picocolors.cyan(path.basename(randomBgVideo)),
+      })
+    }
+
+    if (randomBgMusic) {
+      subItems.push({
+        label: "BG Music",
+        value: picocolors.magenta(path.basename(randomBgMusic)),
+      })
+    }
+
+    const elapsedTime = (Date.now() - startTime) / 1000
+    const timeStr = picocolors.dim(` in ${elapsedTime.toFixed(2)}s`)
+
+    if (subItems.length === 0) {
+      concatSpinner.succeed(
+        `Final video: ${picocolors.cyan(relFinalPath)}${vidDurationStr}${timeStr}`
       )
-      console.log(
-        `  ${picocolors.dim("└─")} BG Music: ${picocolors.magenta(path.basename(randomBgMusic))}`
+    } else {
+      concatSpinner.succeed(
+        `Final video: ${picocolors.cyan(relFinalPath)}${vidDurationStr}`
       )
-    } else if (randomBgVideo) {
-      console.log(
-        `  ${picocolors.dim("└─")} BG Video: ${picocolors.cyan(path.basename(randomBgVideo))}`
-      )
-    } else if (randomBgMusic) {
-      console.log(
-        `  ${picocolors.dim("└─")} BG Music: ${picocolors.magenta(path.basename(randomBgMusic))}`
-      )
+      for (let i = 0; i < subItems.length; i++) {
+        const isLast = i === subItems.length - 1
+        const prefix = isLast ? "└─" : "├─"
+        const suffix = isLast ? timeStr : ""
+        console.log(
+          `  ${picocolors.dim(prefix)} ${subItems[i].label}: ${subItems[i].value}${suffix}`
+        )
+      }
     }
   } catch (err: any) {
     if (currentSpinner && currentSpinner.isSpinning) {
