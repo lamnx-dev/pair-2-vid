@@ -39,7 +39,10 @@ export class OnnxTTSEngine {
       isPiperPhonemizeInitialized = true
     }
 
-    this.session = await ort.InferenceSession.create(this.modelPath)
+    this.session = await ort.InferenceSession.create(this.modelPath, {
+      intraOpNumThreads: CONFIG.DEFAULT_ONNX_THREADS,
+      interOpNumThreads: 1,
+    })
   }
 
   public textToPhonemeIds(text: string): number[] {

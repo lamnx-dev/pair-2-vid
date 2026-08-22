@@ -305,6 +305,8 @@ export async function generateThumbnailImage({
 
   await execa(ffmpegPath, [
     "-y",
+    "-threads",
+    CONFIG.DEFAULT_FFMPEG_SEGMENT_THREADS.toString(),
     "-i",
     resolvedFramePath,
     "-vf",

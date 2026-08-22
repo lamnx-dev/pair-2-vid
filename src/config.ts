@@ -10,8 +10,12 @@ export const CONFIG = {
   // Gap / Transition Settings
   DEFAULT_GAP_DURATION: 0.3,
 
-  // Concurrency Settings
-  DEFAULT_CONCURRENCY: 5,
+  // Concurrency & CPU Thread Settings
+  DEFAULT_TTS_CONCURRENCY: 6,
+  DEFAULT_VIDEO_CONCURRENCY: 4,
+  DEFAULT_FFMPEG_SEGMENT_THREADS: 2,
+  DEFAULT_FFMPEG_CONCAT_THREADS: 8,
+  DEFAULT_ONNX_THREADS: 1,
 
   // Background Repositories & Compositing Settings
   DEFAULT_BG_VIDEO_DIR: "D:/Workspace/comment-video-studio/assets/bg_videos",

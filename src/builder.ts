@@ -46,7 +46,7 @@ async function synthesizeTTSForItems({
 }: SynthesizeTTSOptions): Promise<SynthesizeTTSResult> {
   if (items.length === 0) return { synthesized: 0, skipped: 0 }
 
-  const concurrencyLimit = Math.max(1, CONFIG.DEFAULT_CONCURRENCY)
+  const concurrencyLimit = Math.max(1, CONFIG.DEFAULT_TTS_CONCURRENCY)
   const spinner = createSpinner(
     `Initializing ONNX TTS Engine (${picocolors.cyan(`${concurrencyLimit} parallel`)})...`
   )
@@ -253,8 +253,8 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       model: options.model,
     })
 
-    // Step 4: Render single video segments (Parallel with fixed CONFIG.DEFAULT_CONCURRENCY)
-    const concurrencyLimit = Math.max(1, CONFIG.DEFAULT_CONCURRENCY)
+    // Step 4: Render single video segments (Parallel with CONFIG.DEFAULT_VIDEO_CONCURRENCY)
+    const concurrencyLimit = Math.max(1, CONFIG.DEFAULT_VIDEO_CONCURRENCY)
     const totalPairs = result.pairs.length
     const renderSpinner = createSpinner(
       `Rendering ${totalPairs} video segments (${picocolors.cyan(`${concurrencyLimit} parallel`)})...`
