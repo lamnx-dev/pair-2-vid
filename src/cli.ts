@@ -32,6 +32,11 @@ program
     "output directory path",
     CONFIG.DEFAULT_OUTPUT_DIR
   )
+  .option(
+    "-n, --name <filename>",
+    "output video filename",
+    CONFIG.DEFAULT_OUTPUT_FILENAME
+  )
   .option("-f, --force", "force overwrite existing output files")
   .option(
     "-k, --keep [type]",
@@ -42,13 +47,20 @@ program
     "TTS model name to use",
     CONFIG.DEFAULT_TTS_MODEL
   )
+  .option("--bg-video <path>", "background video file path")
+  .option("--bgv <path>", "alias for --bg-video")
+  .option("--bg-music <path>", "background music file path")
+  .option("--bgm <path>", "alias for --bg-music")
   .action((options) =>
     buildCommand({
       input: options.input,
       output: options.output,
+      name: options.name,
       force: options.force,
       keep: options.keep,
       model: options.model,
+      bgVideo: options.bgVideo || options.bgv,
+      bgMusic: options.bgMusic || options.bgm,
     })
   )
 

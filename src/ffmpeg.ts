@@ -12,22 +12,11 @@ async function getExecutablePath(
   command: "ffmpeg" | "ffprobe"
 ): Promise<string | null> {
   try {
-    if (command === "ffmpeg") {
-      const ffmpegPkg = await import("@ffmpeg-installer/ffmpeg")
-      if (ffmpegPkg.default?.path && fs.existsSync(ffmpegPkg.default.path)) {
-        return ffmpegPkg.default.path
-      }
-    } else {
-      const ffprobePkg = await import("@ffprobe-installer/ffprobe")
-      if (ffprobePkg.default?.path && fs.existsSync(ffprobePkg.default.path)) {
-        return ffprobePkg.default.path
-      }
-    }
+    await execa(command, ["-version"])
+    return command
   } catch {
-    // Package not available or failed
+    return null
   }
-
-  return null
 }
 
 export async function checkFFmpegAvailability(): Promise<{
@@ -43,12 +32,10 @@ export async function checkFFmpegAvailability(): Promise<{
 
   if (!ffmpeg || !ffprobe) {
     console.error(
-      picocolors.red(
-        "\nFFmpeg or FFprobe binaries from npm packages were not found"
-      )
+      picocolors.red("\nFFmpeg or FFprobe was not found on your system PATH.")
     )
     console.error(
-      "\nPlease ensure @ffmpeg-installer/ffmpeg and @ffprobe-installer/ffprobe are properly installed.\n"
+      "\nPlease install FFmpeg and make sure 'ffmpeg' and 'ffprobe' are added to your PATH environment variable.\n"
     )
     process.exit(1)
   }
@@ -337,7 +324,6 @@ export async function concatVideosWithGap(
   const { ffmpegPath } = await checkFFmpegAvailability()
 
   const gapDuration = CONFIG.DEFAULT_GAP_DURATION
-  const bgMusicVol = CONFIG.DEFAULT_BG_MUSIC_VOLUME
   const fgScaleRatio = CONFIG.DEFAULT_FG_SCALE
 
   const thumbDuration =
@@ -509,10 +495,10 @@ export async function concatVideosWithGap(
 
   if (bgmIdx !== null) {
     filterParts.push(
-      `[${bgmIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=${bgMusicVol},atrim=duration=${totalFinalDuration.toFixed(6)},asetpts=PTS-STARTPTS[bgm_a]`
+      `[${bgmIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=${totalFinalDuration.toFixed(6)},asetpts=PTS-STARTPTS[bgm_a]`
     )
     filterParts.push(
-      `[speech_a][bgm_a]amix=inputs=2:duration=first:dropout_transition=0:weights='1 1',atrim=duration=${totalFinalDuration.toFixed(6)}[outa]`
+      `[speech_a][bgm_a]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,atrim=duration=${totalFinalDuration.toFixed(6)}[outa]`
     )
   } else {
     filterParts.push(`[speech_a]anull[outa]`)

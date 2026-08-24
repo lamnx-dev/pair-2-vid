@@ -137,8 +137,13 @@ export async function scanInputDirectory(
     }
   }
 
-  // Sort pairs by basename for consistent ordering
-  pairs.sort((a, b) => a.basename.localeCompare(b.basename))
+  // Sort pairs by basename for consistent ordering (natural/numeric sort, e.g. 1 -> 2 -> 10)
+  pairs.sort((a, b) =>
+    a.basename.localeCompare(b.basename, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    })
+  )
 
   // Check image dimensions for valid pairs
   const dimensionInfos: ImageDimensionInfo[] = []

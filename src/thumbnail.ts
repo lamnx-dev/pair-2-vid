@@ -4,6 +4,7 @@ import path from "path"
 import { fileURLToPath } from "url"
 import { CONFIG } from "./config.js"
 import { checkFFmpegAvailability } from "./ffmpeg.js"
+import { stripBreakTags } from "./onnx.js"
 
 export interface GenerateThumbnailOptions {
   titleText: string
@@ -68,19 +69,12 @@ function resolveSystemFont(): string | null {
  * - 4 words: 2 lines
  * - 5-7 words: 3 lines (middle line wider, but constrained to max 1.35x of edge lines)
  * - 8-9 words: 4 lines
- * - Evaluates splits by character length to match target circular silhouette
- */
-/**
- * Splits text into balanced lines using character lengths and circular/diamond target proportions:
- * - 1-2 words: 1 line (if under 12 chars), otherwise 2 lines
- * - 3-4 words: 2 lines
- * - 5 words: 2 lines if short (<= 18 chars), otherwise 3 lines
- * - 6-7 words: 3 lines
- * - 8-9 words: 4 lines
+ * Enhanced title wrapping algorithm:
+ * - Automatically handles 2 to 6+ words with optimal line breaking
  * - Evaluates splits by character length to match target circular silhouette
  */
 export function wrapTitleText(text: string): string {
-  const clean = text.trim().replace(/\s+/g, " ")
+  const clean = stripBreakTags(text).trim().replace(/\s+/g, " ")
   if (!clean) return ""
 
   const words = clean.split(" ")

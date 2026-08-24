@@ -15,12 +15,11 @@ export const CONFIG = {
   DEFAULT_VIDEO_CONCURRENCY: 4,
   DEFAULT_FFMPEG_SEGMENT_THREADS: 2,
   DEFAULT_FFMPEG_CONCAT_THREADS: 8,
-  DEFAULT_ONNX_THREADS: 1,
+  DEFAULT_ONNX_THREADS: 2,
 
   // Background Repositories & Compositing Settings
   DEFAULT_BG_VIDEO_DIR: "D:/Workspace/comment-video-studio/assets/bg_videos",
   DEFAULT_BG_MUSIC_DIR: "D:/Workspace/comment-video-studio/assets/bg_music",
-  DEFAULT_BG_MUSIC_VOLUME: 0.4,
   DEFAULT_FG_SCALE: 0.8,
   MIN_BG_START_OFFSET: 3,
 

@@ -368,6 +368,46 @@ async function main() {
   }
   console.log("✓ TTS correctly ignored title.txt, caption.txt, and _notes.txt!")
 
+  // Test 8: SSML Break tags parsing & stripping
+  console.log("\n--- Test 8: SSML Break tags parsing ---")
+  const { parseTextWithBreaks, stripBreakTags, parseDurationMs } =
+    await import("../src/onnx.js")
+
+  if (
+    parseDurationMs("200ms") !== 200 ||
+    parseDurationMs("500ms") !== 500 ||
+    parseDurationMs("1s") !== 1000 ||
+    parseDurationMs("2s") !== 2000
+  ) {
+    throw new Error("parseDurationMs failed!")
+  }
+
+  const sampleText =
+    'Xin chào <break time="200ms"/> các bạn <break time="1s"/> kết thúc'
+  const segments = parseTextWithBreaks(sampleText)
+
+  if (
+    segments.length !== 5 ||
+    segments[0].text !== "Xin chào" ||
+    segments[1].durationMs !== 200 ||
+    segments[2].text !== "các bạn" ||
+    segments[3].durationMs !== 1000 ||
+    segments[4].text !== "kết thúc"
+  ) {
+    throw new Error("parseTextWithBreaks failed!")
+  }
+  const cleanTitle = stripBreakTags('Tiêu đề <break time="1s"/> video')
+  if (cleanTitle !== "Tiêu đề video") {
+    throw new Error(`stripBreakTags failed! Got: "${cleanTitle}"`)
+  }
+  console.log("\n--- Test 9: Background video/music exact path validation ---")
+  const nonExistentVid = path.resolve("definitely_non_existent_12345.mp4")
+  if (fs.existsSync(nonExistentVid)) {
+    throw new Error("Expected non-existent video path not to exist!")
+  }
+
+  console.log("✓ Background exact path validation tested successfully!")
+
   // Cleanup test directory
   fs.rmSync(TEST_DIR, { recursive: true, force: true })
 

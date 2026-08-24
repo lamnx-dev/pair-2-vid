@@ -11,6 +11,58 @@ const pkgRootDir = path.resolve(__dirname, "..")
 
 let isPiperPhonemizeInitialized = false
 
+export interface TextSegment {
+  type: "text" | "pause"
+  text?: string
+  durationMs?: number
+}
+
+export function parseDurationMs(raw: string): number {
+  const s = raw.trim().toLowerCase()
+  if (s.endsWith("ms")) {
+    return parseFloat(s.slice(0, -2)) || 0
+  }
+  if (s.endsWith("s")) {
+    return (parseFloat(s.slice(0, -1)) || 0) * 1000
+  }
+  return 0
+}
+
+export function parseTextWithBreaks(input: string): TextSegment[] {
+  const segments: TextSegment[] = []
+  // Standard SSML format: <break time="200ms"/>, <break time="500ms"/>, <break time="1s"/>, <break time="2s"/>
+  const regex = /<break\s+time=["']([0-9.]+(?:ms|s))["']\s*\/?>/gi
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(input)) !== null) {
+    const textBefore = input.slice(lastIndex, match.index).trim()
+    if (textBefore) {
+      segments.push({ type: "text", text: textBefore })
+    }
+    const rawTime = match[1]
+    if (rawTime) {
+      const durationMs = parseDurationMs(rawTime)
+      if (durationMs > 0) {
+        segments.push({ type: "pause", durationMs })
+      }
+    }
+    lastIndex = match.index + match[0].length
+  }
+
+  const remainingText = input.slice(lastIndex).trim()
+  if (remainingText) {
+    segments.push({ type: "text", text: remainingText })
+  }
+
+  return segments
+}
+
+export function stripBreakTags(text: string): string {
+  const regex = /<break\s+time=["'][0-9.]+(?:ms|s)["']\s*\/?>/gi
+  return text.replace(regex, "").replace(/\s+/g, " ").trim()
+}
+
 export class OnnxTTSEngine {
   private session: ort.InferenceSession | null = null
   private config: OnnxTTSConfig | null = null
@@ -82,13 +134,12 @@ export class OnnxTTSEngine {
     return symbolIds
   }
 
-  async synthesizeText(text: string, outputPath: string): Promise<string> {
-    if (!this.session || !this.config) {
-      await this.init()
-    }
-
+  private async inferSingleText(text: string): Promise<Float32Array> {
     const config = this.config!
     const tokenIds = this.textToPhonemeIds(text)
+    if (tokenIds.length <= 2) {
+      return new Float32Array(0)
+    }
 
     const noiseScale = config.inference.noise_scale
     const lengthScale = config.inference.length_scale / CONFIG.DEFAULT_TTS_SPEED
@@ -117,10 +168,47 @@ export class OnnxTTSEngine {
     }
 
     const outputs = await this.session!.run(feeds)
-    const audioData = outputs.output.data as Float32Array
-    const sampleRate = config.audio.sample_rate
+    return outputs.output.data as Float32Array
+  }
 
-    const wavBuffer = this.createWavBuffer(audioData, sampleRate)
+  async synthesizeText(text: string, outputPath: string): Promise<string> {
+    if (!this.session || !this.config) {
+      await this.init()
+    }
+
+    const config = this.config!
+    const sampleRate = config.audio.sample_rate
+    const segments = parseTextWithBreaks(text)
+
+    const audioParts: Float32Array[] = []
+    let totalSamples = 0
+
+    for (const segment of segments) {
+      if (segment.type === "text" && segment.text) {
+        const audio = await this.inferSingleText(segment.text)
+        if (audio.length > 0) {
+          audioParts.push(audio)
+          totalSamples += audio.length
+        }
+      } else if (segment.type === "pause" && segment.durationMs) {
+        const sampleCount = Math.floor((segment.durationMs / 1000) * sampleRate)
+        if (sampleCount > 0) {
+          const silence = new Float32Array(sampleCount)
+          audioParts.push(silence)
+          totalSamples += sampleCount
+        }
+      }
+    }
+
+    // Merge all audio parts
+    const mergedSamples = new Float32Array(totalSamples)
+    let offset = 0
+    for (const part of audioParts) {
+      mergedSamples.set(part, offset)
+      offset += part.length
+    }
+
+    const wavBuffer = this.createWavBuffer(mergedSamples, sampleRate)
 
     // Ensure directory exists
     const dir = path.dirname(outputPath)

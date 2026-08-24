@@ -18,7 +18,7 @@ import {
   renderVideo,
   verifyVideo,
 } from "./ffmpeg.js"
-import { OnnxTTSEngine } from "./onnx.js"
+import { TTSWorkerPool } from "./tts-pool.js"
 import {
   getRandomMediaFile,
   isIgnoredFile,
@@ -51,8 +51,8 @@ async function synthesizeTTSForItems({
     `Initializing ONNX TTS Engine (${picocolors.cyan(`${concurrencyLimit} parallel`)})...`
   )
 
-  const ttsEngine = new OnnxTTSEngine(model)
-  await ttsEngine.init()
+  const pool = new TTSWorkerPool(concurrencyLimit, model)
+  await pool.init()
 
   let synthesized = 0
   let skipped = 0
@@ -63,56 +63,54 @@ async function synthesizeTTSForItems({
     const activeList = Array.from(inProgress).map((f) => picocolors.cyan(f))
     const activeInfo =
       activeList.length > 0 ? ` [${activeList.join(", ")}]` : ""
-    const statusParts: string[] = []
-    if (synthesized > 0)
-      statusParts.push(picocolors.green(`${synthesized} synthesized`))
-    if (skipped > 0) statusParts.push(picocolors.yellow(`${skipped} skipped`))
-    const statusStr =
-      statusParts.length > 0 ? ` (${statusParts.join(", ")})` : ""
 
-    spinner.text = `Synthesizing TTS: ${completed}/${items.length}${statusStr}${activeInfo}...`
+    spinner.text = `Synthesizing TTS: ${completed}/${items.length}${activeInfo}`
   }
 
   updateSpinnerText()
 
-  const tasks = items.map((item) => async () => {
-    const wavPath = getWavPath(item)
-    if (!force && fs.existsSync(wavPath)) {
-      item.audioPath = wavPath
-      skipped++
-      completed++
+  try {
+    const tasks = items.map((item) => async () => {
+      const wavPath = getWavPath(item)
+      if (!force && fs.existsSync(wavPath)) {
+        item.audioPath = wavPath
+        skipped++
+        completed++
+        updateSpinnerText()
+        return
+      }
+
+      inProgress.add(item.basename)
       updateSpinnerText()
-      return
-    }
 
-    inProgress.add(item.basename)
-    updateSpinnerText()
-
-    try {
-      await ttsEngine.synthesizeFile(item.textPath, wavPath)
-      item.audioPath = wavPath
-      synthesized++
-      completed++
-    } finally {
-      inProgress.delete(item.basename)
-      updateSpinnerText()
-    }
-  })
-
-  // Execute tasks with concurrency pool
-  const executing: Promise<void>[] = []
-  for (const task of tasks) {
-    const p = Promise.resolve().then(() => task())
-    executing.push(p)
-    p.finally(() => {
-      const idx = executing.indexOf(p)
-      if (idx !== -1) executing.splice(idx, 1)
+      try {
+        await pool.synthesizeFile(item.textPath, wavPath)
+        item.audioPath = wavPath
+        synthesized++
+        completed++
+      } finally {
+        inProgress.delete(item.basename)
+        updateSpinnerText()
+      }
     })
-    if (executing.length >= concurrencyLimit) {
-      await Promise.race(executing)
+
+    // Execute tasks with concurrency pool
+    const executing: Promise<void>[] = []
+    for (const task of tasks) {
+      const p = Promise.resolve().then(() => task())
+      executing.push(p)
+      p.finally(() => {
+        const idx = executing.indexOf(p)
+        if (idx !== -1) executing.splice(idx, 1)
+      })
+      if (executing.length >= concurrencyLimit) {
+        await Promise.race(executing)
+      }
     }
+    await Promise.all(executing)
+  } finally {
+    await pool.terminate()
   }
-  await Promise.all(executing)
 
   const parts: string[] = []
   if (synthesized > 0)
@@ -195,7 +193,10 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   const startTime = Date.now()
   const inputDir = path.resolve(options.input)
   const outputDir = path.resolve(options.output)
-  const outputFileName = CONFIG.DEFAULT_OUTPUT_FILENAME
+  let outputFileName = options.name?.trim() || CONFIG.DEFAULT_OUTPUT_FILENAME
+  if (!path.extname(outputFileName)) {
+    outputFileName += ".mp4"
+  }
   const finalOutputPath = path.join(outputDir, outputFileName)
   const relFinalPath =
     path.relative(process.cwd(), finalOutputPath) || finalOutputPath
@@ -211,7 +212,52 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   // Step 1: Check FFmpeg availability
   await checkFFmpegAvailability()
 
-  // Step 2: Scan input directory
+  // Step 2: Resolve & validate background video and music assets
+  let selectedBgVideo: string | null = null
+  if (options.bgVideo) {
+    const videoPath = path.resolve(options.bgVideo)
+    if (!fs.existsSync(videoPath) || !fs.statSync(videoPath).isFile()) {
+      const errSpinner = createSpinner("Checking background video...")
+      errSpinner.fail(
+        `Background video not found: ${picocolors.red(options.bgVideo)}`
+      )
+      process.exit(1)
+    }
+    selectedBgVideo = videoPath
+  } else {
+    const bgVideoDir = path.resolve(pkgRootDir, CONFIG.DEFAULT_BG_VIDEO_DIR)
+    if (!fs.existsSync(bgVideoDir)) {
+      fs.mkdirSync(bgVideoDir, { recursive: true })
+    }
+    selectedBgVideo = getRandomMediaFile(
+      bgVideoDir,
+      CONFIG.SUPPORTED_VIDEO_EXTS
+    )
+  }
+
+  let selectedBgMusic: string | null = null
+  if (options.bgMusic) {
+    const musicPath = path.resolve(options.bgMusic)
+    if (!fs.existsSync(musicPath) || !fs.statSync(musicPath).isFile()) {
+      const errSpinner = createSpinner("Checking background music...")
+      errSpinner.fail(
+        `Background music not found: ${picocolors.red(options.bgMusic)}`
+      )
+      process.exit(1)
+    }
+    selectedBgMusic = musicPath
+  } else {
+    const bgMusicDir = path.resolve(pkgRootDir, CONFIG.DEFAULT_BG_MUSIC_DIR)
+    if (!fs.existsSync(bgMusicDir)) {
+      fs.mkdirSync(bgMusicDir, { recursive: true })
+    }
+    selectedBgMusic = getRandomMediaFile(
+      bgMusicDir,
+      CONFIG.SUPPORTED_AUDIO_EXTS
+    )
+  }
+
+  // Step 3: Scan input directory
   const result = await validateScanResult(inputDir)
   if (!result) {
     process.exit(1)
@@ -269,15 +315,8 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       const activeList = Array.from(inProgress).map((f) => picocolors.cyan(f))
       const activeInfo =
         activeList.length > 0 ? ` [${activeList.join(", ")}]` : ""
-      const statusParts: string[] = []
-      if (renderedCount > 0)
-        statusParts.push(picocolors.green(`${renderedCount} rendered`))
-      if (skippedCount > 0)
-        statusParts.push(picocolors.yellow(`${skippedCount} skipped`))
-      const statusStr =
-        statusParts.length > 0 ? ` (${statusParts.join(", ")})` : ""
 
-      renderSpinner.text = `Rendering segments: ${completedCount}/${totalPairs}${statusStr}${activeInfo}...`
+      renderSpinner.text = `Rendering segments: ${completedCount}/${totalPairs}${activeInfo}`
     }
 
     const renderedPaths: { index: number; path: string }[] = []
@@ -357,35 +396,17 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     }
 
     const renderParts: string[] = []
-    if (renderedCount > 0)
+    if (renderedCount > 0) {
       renderParts.push(picocolors.green(`${renderedCount} rendered`))
-    if (skippedCount > 0)
+    }
+    if (skippedCount > 0) {
       renderParts.push(picocolors.yellow(`${skippedCount} skipped`))
+    }
     const keepNote = keepVideo
       ? ` (${picocolors.cyan("kept in output directory")})`
       : ""
     renderSpinner.succeed(
       `Video segments: ${renderParts.join(", ") || "0 segments"}${keepNote}`
-    )
-
-    // Step 5: Select random background assets (video & music) from package root directory
-    const bgVideoDir = path.resolve(pkgRootDir, CONFIG.DEFAULT_BG_VIDEO_DIR)
-    const bgMusicDir = path.resolve(pkgRootDir, CONFIG.DEFAULT_BG_MUSIC_DIR)
-
-    if (!fs.existsSync(bgVideoDir)) {
-      fs.mkdirSync(bgVideoDir, { recursive: true })
-    }
-    if (!fs.existsSync(bgMusicDir)) {
-      fs.mkdirSync(bgMusicDir, { recursive: true })
-    }
-
-    const randomBgVideo = getRandomMediaFile(
-      bgVideoDir,
-      CONFIG.SUPPORTED_VIDEO_EXTS
-    )
-    const randomBgMusic = getRandomMediaFile(
-      bgMusicDir,
-      CONFIG.SUPPORTED_AUDIO_EXTS
     )
 
     // Optional Step: Generate thumbnail image if title.txt exists in input directory
@@ -423,13 +444,13 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     )
     currentSpinner = concatSpinner
 
-    if (randomBgVideo || randomBgMusic) {
+    if (selectedBgVideo || selectedBgMusic) {
       const bgParts: string[] = []
-      if (randomBgVideo)
-        bgParts.push(`BG: ${picocolors.cyan(path.basename(randomBgVideo))}`)
-      if (randomBgMusic)
+      if (selectedBgVideo)
+        bgParts.push(`BG: ${picocolors.cyan(path.basename(selectedBgVideo))}`)
+      if (selectedBgMusic)
         bgParts.push(
-          `Music: ${picocolors.magenta(path.basename(randomBgMusic))}`
+          `Music: ${picocolors.magenta(path.basename(selectedBgMusic))}`
         )
       concatSpinner.text = `Compositing clips onto ${bgParts.join(", ")}...`
     }
@@ -437,8 +458,8 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     await concatVideosWithGap({
       videoPaths: videoPathsForConcat,
       outputPath: finalOutputPath,
-      bgVideoPath: randomBgVideo,
-      bgMusicPath: randomBgMusic,
+      bgVideoPath: selectedBgVideo,
+      bgMusicPath: selectedBgMusic,
       thumbOverlayPath,
     })
 
@@ -472,17 +493,17 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       }
     }
 
-    if (randomBgVideo) {
+    if (selectedBgVideo) {
       subItems.push({
         label: "BG Video",
-        value: picocolors.cyan(path.basename(randomBgVideo)),
+        value: picocolors.cyan(path.basename(selectedBgVideo)),
       })
     }
 
-    if (randomBgMusic) {
+    if (selectedBgMusic) {
       subItems.push({
         label: "BG Music",
-        value: picocolors.magenta(path.basename(randomBgMusic)),
+        value: picocolors.magenta(path.basename(selectedBgMusic)),
       })
     }
 

@@ -4,6 +4,13 @@ A CLI tool that automatically pairs images with audio (or images with TTS text f
 
 ---
 
+## Requirements
+
+- **Node.js:** `>= 18`
+- **FFmpeg & FFprobe:** Installed on your machine and available in your system `PATH`.
+
+---
+
 ## Features
 
 - **Smart pairing:** Automatically matches images and audio/text by **basename** (e.g. `01.png` + `01.mp3`, or `02.webp` + `02.txt`).
@@ -11,13 +18,15 @@ A CLI tool that automatically pairs images with audio (or images with TTS text f
 - **Thumbnail / Title Intro Overlay:**
   - Automatically detects `title.txt` in the input folder to generate a floral frame thumbnail intro at the beginning of the video (`DEFAULT_THUMB_DURATION = 0.1s`).
   - Text is automatically wrapped (2-3 words per line), centered, and rendered using custom font `Quicksand-Bold.ttf`.
-  - Background video is gently blurred (`boxblur`, radius 15) during thumbnail intro for premium aesthetic presentation.
+  - Background video is gently blurred (`avgblur`, radius 15) during thumbnail intro for premium aesthetic presentation.
   - Export thumbnail image directly with `-k thumb` to create `thumbnail.jpg` (first frame of the video).
 - **Background Video & Music Compositing:**
-  - Automatically picks random background video (from `assets/bg_videos`) and background music (from `assets/bg_music`).
+  - Supports custom background video via `--bg-video <path>` / `--bgv <path>` and background music via `--bg-music <path>` / `--bgm <path>`.
+  - If no background flags are supplied, automatically picks random background assets from `assets/bg_videos` and `assets/bg_music`.
   - Standard **9:16 Portrait** output (`1080x1920`).
-  - Foreground images are scaled down (`scale=0.8`) and centered cleanly over the background video, keeping aspect ratio intact with transparent padding.
-  - Background music is scaled in volume (default `0.4`) and mixed with primary segment audio.
+  - Foreground images are scaled (`scale=0.8`) and centered cleanly over the background video, keeping aspect ratio intact with transparent padding.
+  - Background music is mixed at **100% original volume** alongside voiceover audio.
+- **Custom Output Filename:** Set a custom output filename via `-n, --name <filename>` (default: `output.mp4`).
 - **Inter-segment transitions / gaps:**
   - Inserts customizable gaps (default `0.3` seconds) between media pairs.
 - **Intermediate file retention (`-k` / `--keep`):** Keep all intermediate files (`-k`), segment videos (`-k video`), synthesized TTS audio (`-k audio`), or export thumbnail image (`-k thumb`).
@@ -35,12 +44,12 @@ A CLI tool that automatically pairs images with audio (or images with TTS text f
 ```text
 ./input/
 ├── title.txt       ← title text for thumbnail intro (optional)
-├── 01.png     ← image
-├── 01.mp3     ← audio (used directly)
+├── 01.png          ← image
+├── 01.mp3          ← audio (used directly)
 ├── 02.webp
 ├── 02.wav
 ├── 03.jpg
-└── 03.txt     ← text → TTS synthesizes audio automatically
+└── 03.txt          ← text → TTS synthesizes audio automatically
 ```
 
 ---
@@ -55,7 +64,19 @@ p2v
 p2v build -i ./input -o ./output
 ```
 
-Produces `output.mp4` (concatenated video) in the output directory.
+Custom output filename:
+
+```bash
+p2v build -i ./input -o ./output -n final_video.mp4
+```
+
+Specify custom background video & music:
+
+```bash
+p2v build -i ./input -o ./output --bg-video "D:/assets/bg.mp4" --bg-music "D:/assets/music.mp3"
+# Or using aliases:
+p2v build -i ./input -o ./output --bgv ./bg.mp4 --bgm ./music.mp3
+```
 
 ---
 
@@ -66,12 +87,6 @@ You can specify a model on the fly during `build` or `tts`:
 ```bash
 p2v -m ngochuyen5
 p2v build -m namtrung
-```
-
-Or select and set your **persistent default TTS model** interactively:
-
-```bash
-p2v models
 ```
 
 ---
@@ -144,15 +159,20 @@ p2v validate -i ./input
 
 ### `p2v build` (Default)
 
-| Option               | Description                                                       | Default           |
-| :------------------- | :---------------------------------------------------------------- | :---------------- |
-| `-i, --input <dir>`  | Path to input directory containing images & audio/txt             | `.` (current dir) |
-| `-o, --output <dir>` | Path to output directory                                          | `.` (current dir) |
-| `-f, --force`        | Overwrite existing output files                                   | `false`           |
-| `-k, --keep [type]`  | Keep intermediate files: `-k` (all), `video`, `audio`, or `thumb` | `false`           |
-| `-m, --model <name>` | TTS model name to use for text synthesis                          | `ngochuyen5`      |
-| `-h, --help`         | Show help                                                         |                   |
-| `-V, --version`      | Show version number                                               |                   |
+| Option                  | Description                                                       | Default            |
+| :---------------------- | :---------------------------------------------------------------- | :----------------- |
+| `-i, --input <dir>`     | Path to input directory containing images & audio/txt             | `.` (current dir)  |
+| `-o, --output <dir>`    | Path to output directory                                          | `.` (current dir)  |
+| `-n, --name <filename>` | Output video filename                                             | `output.mp4`       |
+| `-f, --force`           | Overwrite existing output files                                   | `false`            |
+| `-k, --keep [type]`     | Keep intermediate files: `-k` (all), `video`, `audio`, or `thumb` | `false`            |
+| `-m, --model <name>`    | TTS model name to use for text synthesis                          | `ngochuyen5`       |
+| `--bg-video <path>`     | Background video file path (exact path)                           | (Random from repo) |
+| `--bgv <path>`          | Alias for `--bg-video`                                            | (Random from repo) |
+| `--bg-music <path>`     | Background music file path (exact path)                           | (Random from repo) |
+| `--bgm <path>`          | Alias for `--bg-music`                                            | (Random from repo) |
+| `-h, --help`            | Show help                                                         |                    |
+| `-V, --version`         | Show version number                                               |                    |
 
 ### `p2v tts`
 

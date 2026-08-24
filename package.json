@@ -19,8 +19,6 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@ffmpeg-installer/ffmpeg": "^1.1.0",
-    "@ffprobe-installer/ffprobe": "^2.1.2",
     "commander": "^13.1.0",
     "execa": "^9.6.0",
     "onnxruntime-node": "^1.27.0",

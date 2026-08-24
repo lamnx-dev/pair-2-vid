@@ -93,9 +93,12 @@ export interface SynthesizeTTSResult {
 export interface BuildOptions {
   input: string
   output: string
+  name: string
   force?: boolean
   keep?: string | boolean
-  model?: string
+  model: string
+  bgVideo?: string
+  bgMusic?: string
 }
 
 export interface TTSCommandOptions {
